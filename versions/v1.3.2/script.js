@@ -663,7 +663,7 @@ let __lastServerLogTs = 0;
 async function logErrorToServer(error) {
     // v1.3.1: Erweiterte Server-Logging mit POST-Request
     const logMessage = typeof error === 'string' ? error : (error.message || error);
-    console.error('v1.3.1 Log:', logMessage);
+    console.error('v1.3.2 Log:', logMessage);
 
     if (error.stack) {
         console.error('Stack:', error.stack);
