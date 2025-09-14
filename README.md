@@ -77,7 +77,7 @@ Open: `https://your-server:8000` (Accept security warning for self-signed cert)
 ### Performance Parameters
 ```javascript
 const FRAME_HISTORY_SIZE = 4;           // Optimized for performance
-const CONFIDENCE_THRESHOLD = 0.65;      // Improved detection rate
+const CONFIDENCE_THRESHOLD = 0.62;      // Improved detection rate
 const HIGH_CONFIDENCE_THRESHOLD = 0.85; // Instant recognition
 const STABLE_FRAMES_REQUIRED = 15;      // Stability requirement
 const MAX_PROCESSING_WIDTH = 640;       // Mobile optimization
