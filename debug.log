@@ -1,0 +1,28 @@
+2025-09-14T10:35:06.463717: Bild gespeichert: final_20250914_103506.png
+2025-09-14T10:35:11.788649: Bild gespeichert: final_20250914_103511.png
+2025-09-14T10:35:18.043058: Bild gespeichert: final_20250914_103518.png
+2025-09-14T10:43:52.505280: TEST_LOG: System erweitert - Server-Logging aktiv Sun Sep 14 10:43:52 CEST 2025
+2025-09-14T10:44:55.063331: DOCUMENT_DETECTION: {"confidence":0.867275634765625,"avgConfidence":0.8722896575927734,"detectionCount":10,"timestamp":"2025-09-14T08:44:55.046Z"}
+2025-09-14T10:44:55.805894: DOCUMENT_DETECTION: {"confidence":0.8644158935546875,"avgConfidence":0.8641178894042969,"detectionCount":20,"timestamp":"2025-09-14T08:44:55.790Z"}
+2025-09-14T10:44:56.554340: DOCUMENT_DETECTION: {"confidence":0.8699859619140624,"avgConfidence":0.8695524139404297,"detectionCount":30,"timestamp":"2025-09-14T08:44:56.534Z"}
+2025-09-14T10:44:57.227056: Bild gespeichert: final_20250914_104457.png
+2025-09-14T10:44:57.241062: final-Bild erfolgreich gespeichert: final_20250914_104457.png
+2025-09-14T10:44:57.251847: SCAN_SUCCESS: {"filename":"final_20250914_104457.png","successRate":100,"totalScans":1,"timestamp":"2025-09-14T08:44:57.231Z"}
+2025-09-14T10:44:59.193298: DOCUMENT_DETECTION: {"confidence":0.9158742065429688,"avgConfidence":0.9146011657714844,"detectionCount":40,"timestamp":"2025-09-14T08:44:58.945Z"}
+2025-09-14T10:44:59.753977: VALIDATION_SUMMARY: {"sessionDuration":9.177,"performance":"🟡 GOOD","avgFrameTime":75.01666666666671,"stabilityRatio":1,"successRate":100,"totalDetections":40,"totalScans":1,"avgConfidence":0.876189762878418,"timestamp":"2025-09-14T08:44:59.736Z"}
+2025-09-14T10:45:01.273586: DOCUMENT_DETECTION: {"confidence":0.9405423583984376,"avgConfidence":0.941064208984375,"detectionCount":50,"timestamp":"2025-09-14T08:45:01.249Z"}
+2025-09-14T10:45:02.011034: DOCUMENT_DETECTION: {"confidence":0.9371157226562501,"avgConfidence":0.93802978515625,"detectionCount":60,"timestamp":"2025-09-14T08:45:01.994Z"}
+2025-09-14T10:45:02.726534: DOCUMENT_DETECTION: {"confidence":0.9334600219726563,"avgConfidence":0.933645965576172,"detectionCount":70,"timestamp":"2025-09-14T08:45:02.708Z"}
+2025-09-14T10:45:03.379175: Bild gespeichert: final_20250914_104503.png
+2025-09-14T10:45:03.394645: final-Bild erfolgreich gespeichert: final_20250914_104503.png
+2025-09-14T10:45:03.404697: SCAN_SUCCESS: {"filename":"final_20250914_104503.png","successRate":100,"totalScans":2,"timestamp":"2025-09-14T08:45:03.384Z"}
+2025-09-14T10:45:06.837691: VALIDATION_SUMMARY: {"sessionDuration":16.265,"performance":"🟡 GOOD","avgFrameTime":73.55000000000008,"stabilityRatio":1,"successRate":100,"totalDetections":78,"totalScans":2,"avgConfidence":0.9064705223670375,"timestamp":"2025-09-14T08:45:06.823Z"}
+2025-09-14T10:45:07.334845: DOCUMENT_DETECTION: {"confidence":0.9206153564453126,"avgConfidence":0.9206153564453126,"detectionCount":80,"timestamp":"2025-09-14T08:45:07.321Z"}
+2025-09-14T10:45:08.051023: DOCUMENT_DETECTION: {"confidence":0.9195595703125001,"avgConfidence":0.918794921875,"detectionCount":90,"timestamp":"2025-09-14T08:45:08.032Z"}
+2025-09-14T10:45:08.773354: DOCUMENT_DETECTION: {"confidence":0.9198056640625001,"avgConfidence":0.918671875,"detectionCount":100,"timestamp":"2025-09-14T08:45:08.763Z"}
+2025-09-14T10:45:09.501899: DOCUMENT_DETECTION: {"confidence":0.9157253417968749,"avgConfidence":0.9163240966796875,"detectionCount":110,"timestamp":"2025-09-14T08:45:09.488Z"}
+2025-09-14T10:45:10.087142: Bild gespeichert: final_20250914_104510.png
+2025-09-14T10:45:10.101152: final-Bild erfolgreich gespeichert: final_20250914_104510.png
+2025-09-14T10:45:10.109294: SCAN_SUCCESS: {"filename":"final_20250914_104510.png","successRate":100,"totalScans":3,"timestamp":"2025-09-14T08:45:10.094Z"}
+2025-09-14T10:45:11.773778: DOCUMENT_DETECTION: {"confidence":0.9958078002929689,"avgConfidence":0.9958078002929689,"detectionCount":120,"timestamp":"2025-09-14T08:45:11.761Z"}
+2025-09-14T10:45:12.482541: VALIDATION_SUMMARY: {"sessionDuration":21.912,"performance":"🟡 GOOD","avgFrameTime":72.96111111111114,"stabilityRatio":1,"successRate":100,"totalDetections":120,"totalScans":3,"avgConfidence":0.9124295074462894,"timestamp":"2025-09-14T08:45:12.470Z"}
