@@ -28,16 +28,23 @@
 
 ## 🚀 Quick Start
 
-### 1. **Setup Server**
+### 1. **Generate SSL Certificates** (First time setup)
+```bash
+# Generate self-signed certificates for HTTPS
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes \
+  -subj "/C=DE/ST=State/L=City/O=Organization/OU=OrgUnit/CN=localhost"
+```
+
+### 2. **Setup Server**
 ```bash
 cd /path/to/scanner
 python3 server.py
 ```
 
-### 2. **Access Scanner**
+### 3. **Access Scanner**
 Open: `https://your-server:8000` (Accept security warning for self-signed cert)
 
-### 3. **Debug & Monitor**
+### 4. **Debug & Monitor**
 - **Debug Panel**: Toggle debug button for real-time logs
 - **Performance Monitoring**: Automatic validation every 60 frames
 - **Health Checks**: System analysis every 5 minutes
@@ -131,12 +138,15 @@ v1.3.1/
 ├── 📄 server.py           # HTTPS server with logging
 ├── 📄 debug.html          # Debug interface
 ├── 🔧 opencv.js           # OpenCV.js library
-├── 🔐 cert.pem            # SSL certificate
-├── 🔐 key.pem             # SSL private key
-├── 📊 debug.log           # Server logs and validation data
+├── 🔐 cert.pem            # SSL certificate (generated locally)
+├── 🔐 key.pem             # SSL private key (generated locally)
+├── 📊 debug.log           # Server logs (generated locally)
 ├── 📋 VERSION.md          # Detailed change log
 ├── 📋 TEST_RESULTS.md     # Validation test results
+├── 📋 .gitignore          # Git ignore file
 └── 📋 README.md           # This file
+
+Note: Files marked (generated locally) are excluded from Git
 ```
 
 ## 🔧 Development
