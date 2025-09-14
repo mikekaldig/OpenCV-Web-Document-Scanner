@@ -138,15 +138,16 @@ v1.3.1/
 ├── 📄 server.py           # HTTPS server with logging
 ├── 📄 debug.html          # Debug interface
 ├── 🔧 opencv.js           # OpenCV.js library
-├── 🔐 cert.pem            # SSL certificate (generated locally)
-├── 🔐 key.pem             # SSL private key (generated locally)
-├── 📊 debug.log           # Server logs (generated locally)
 ├── 📋 VERSION.md          # Detailed change log
 ├── 📋 TEST_RESULTS.md     # Validation test results
 ├── 📋 .gitignore          # Git ignore file
 └── 📋 README.md           # This file
 
-Note: Files marked (generated locally) are excluded from Git
+Files generated locally (not in Git):
+├── 🔐 cert.pem            # SSL certificate (generate with openssl)
+├── 🔐 key.pem             # SSL private key (generate with openssl)
+├── 📊 debug.log           # Server logs and validation data
+└── 📸 final_*.png         # Scanned document images
 ```
 
 ## 🔧 Development
