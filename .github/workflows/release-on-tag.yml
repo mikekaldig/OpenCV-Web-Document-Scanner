@@ -1,0 +1,35 @@
+name: Create Release on Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare release body
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          NOTES_FILE="RELEASE_NOTES_${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            cp "$NOTES_FILE" release_body.txt
+          else
+            echo "Automated release for ${TAG}" > release_body.txt
+          fi
+          echo "body=release_body.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: OpenCV Web Document Scanner ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
