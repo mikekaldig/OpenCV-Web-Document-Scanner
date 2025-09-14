@@ -6,6 +6,8 @@ key.pem
 # Debug and log files
 debug.log
 *.log
+*.out
+*.pid
 
 # Generated images
 *.png
