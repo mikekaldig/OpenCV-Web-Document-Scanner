@@ -32,7 +32,7 @@ const AUTO_SCAN_DELAY = 1500; // Kürzere Verzögerung
 
 // v1.3.1: Optimierte Multi-Frame Processing Variablen
 const FRAME_HISTORY_SIZE = 4; // Optimiert: 4 Frames für bessere Performance
-const CONFIDENCE_THRESHOLD = 0.65; // Optimiert: Etwas niedrigerer Threshold für bessere Erkennung
+const CONFIDENCE_THRESHOLD = 0.62; // v1.3.2: leicht gesenkt für bessere Erkennung bei schwieriger Beleuchtung
 const HIGH_CONFIDENCE_THRESHOLD = 0.85; // Neu: Threshold für sofortige Erkennung
 let frameHistory = []; // History der letzten Frames
 let contourHistory = []; // History der gefundenen Konturen
@@ -81,8 +81,8 @@ function onOpenCvReady() {
     startButton.textContent = 'Scan starten';
     console.log('Start-Button aktiviert');
 
-    // v1.3.1: Debug logging mit Session-Start
-    addDebugLog('🚀 <span style="color: #0f0">OpenCV geladen</span> - v1.3.1 Optimized & Enhanced bereit');
+    // v1.3.2: Debug logging mit Session-Start (Basis 1.3.1)
+    addDebugLog('🚀 <span style="color: #0f0">OpenCV geladen</span> - v1.3.2 (Basis 1.3.1) bereit');
     addDebugLog(`📱 Browser: ${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'}`);
     addDebugLog(`🎯 Multi-Frame: ${FRAME_HISTORY_SIZE} Frames | Confidence: ${CONFIDENCE_THRESHOLD}`);
     addDebugLog(`⚡ Performance: ${MAX_PROCESSING_WIDTH}px | Auto-Scan: ${AUTO_SCAN_DELAY}ms`);
@@ -654,7 +654,7 @@ function getTemporallyStabilizedContour() {
 async function logErrorToServer(error) {
     // v1.3.1: Erweiterte Server-Logging mit POST-Request
     const logMessage = typeof error === 'string' ? error : (error.message || error);
-    console.error('v1.3.1 Log:', logMessage);
+    console.error('v1.3.2 Log:', logMessage);
 
     if (error.stack) {
         console.error('Stack:', error.stack);

@@ -1,5 +1,21 @@
-# Version 1.3.1 - Optimized & Validated
+# Version 1.3.2 - Conservative & Clean (Basis 1.3.1)
 
+Datum: 2025-09-14
+
+Änderungen:
+
+- Basis-Pipeline aus v1.3.1 beibehalten (stabile Erkennung)
+- CONFIDENCE_THRESHOLD auf 0.62 gesenkt (robuster bei schwieriger Beleuchtung)
+- Gedrosseltes Server-Logging (INFO/HEARTBEAT)
+- No-Cache HTTP-Header im Server
+- Logrotation ab 5MB
+- Moderner SSLContext (TLS ≥ 1.2) statt ssl.wrap_socket
+
+---
+
+## Version 1.3.1 - Optimized & Validated
+
+ 
 ## Neue Funktionen in v1.3.1
 ✅ **Performance Optimierungen** - Reduzierte History-Größe für bessere Performance
 ✅ **Erweiterte Validierungs-Metriken** - Automatische System-Analyse mit Benchmarks
@@ -7,6 +23,7 @@
 ✅ **Adaptive Thresholds** - Automatische Anpassung an Geräteleistung
 ✅ **Health-Check System** - Kontinuierliche Überwachung der System-Gesundheit
 
+ 
 ## Ererbte Funktionen von v1.3
 ✅ **Multi-Frame Averaging** - Rauschreduzierung durch Frame-Mittelung
 ✅ **Confidence-basierte Erkennung** - Intelligente Bewertung der Dokumentqualität
@@ -15,7 +32,9 @@
 
 ## Technische Verbesserungen
 
+ 
 ### 1. Multi-Frame Processing
+
 ```javascript
 // Frame History für Averaging
 addToFrameHistory(gray);
@@ -28,7 +47,9 @@ if (avgFrame && frameHistory.length >= 3) {
 - Stabilere Edge Detection bei bewegter Kamera
 - Performance-optimiert mit begrenzter History-Größe
 
+ 
 ### 2. Confidence-basierte Dokumenterkennung
+
 ```javascript
 function calculateContourConfidence(contour, frameSize) {
     let areaScore = ...; // Relative Größe bewerten
@@ -42,7 +63,9 @@ function calculateContourConfidence(contour, frameSize) {
 - **Aspect Score**: Realistische Dokumentproportionen
 - **Threshold**: Nur Confidence ≥ 0.7 wird akzeptiert
 
+ 
 ### 3. Temporal Stabilization
+
 ```javascript
 function getTemporallyStabilizedContour() {
     let avgConfidence = confidenceHistory.average();
@@ -55,7 +78,9 @@ function getTemporallyStabilizedContour() {
 - Durchschnittliche Confidence-Bewertung
 - Wählt stabilste Dokumenterkennung
 
+ 
 ### 4. Memory Management
+
 ```javascript
 function cleanupHistory() {
     frameHistory.forEach(frame => frame.delete());
@@ -66,6 +91,7 @@ function cleanupHistory() {
 - Verhindert Memory Leaks bei längerer Nutzung
 - Sichere Mat-Objekt Verwaltung
 
+ 
 ## Erwartete Verbesserungen vs v1.2
 - 🎯 **Stabilere Erkennung** bei Kamerabewegung durch Frame-Averaging
 - 🎯 **Weniger False-Positives** durch Confidence-Schwellenwerte  

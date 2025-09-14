@@ -1,11 +1,17 @@
-# 📷 OpenCV Web Document Scanner v1.3.1
+# 📷 OpenCV Web Document Scanner v1.3.2 (Basis 1.3.1)
 
 > **Professional document scanning directly in your browser using OpenCV.js with advanced validation and performance monitoring**
 
-![Version](https://img.shields.io/badge/version-1.3.1-blue.svg)
+![Version](https://img.shields.io/badge/version-1.3.2-blue.svg)
 ![Status](https://img.shields.io/badge/status-Production_Ready-green.svg)
 ![Performance](https://img.shields.io/badge/performance-🟡_GOOD-yellow.svg)
 ![Success Rate](https://img.shields.io/badge/success_rate-100%25-brightgreen.svg)
+
+## 🔔 What’s new in v1.3.2
+
+- CONFIDENCE_THRESHOLD auf 0.62 gesenkt (robuster bei schwieriger Beleuchtung)
+- Gedrosseltes Logging (INFO/HEARTBEAT), No-Cache Header, Logrotation ab 5MB
+- Moderner SSLContext (TLS ≥ 1.2); sonst gleiche Erkennung wie v1.3.1
 
 ## ✨ Features
 
