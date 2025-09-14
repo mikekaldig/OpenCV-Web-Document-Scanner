@@ -1,11 +1,19 @@
-# 📷 OpenCV Web Document Scanner v1.3.2 (Basis 1.3.1)
+# 📷 OpenCV Web Document Scanner v1.3.3 (Basis 1.3.1)
 
 > **Professional document scanning directly in your browser using OpenCV.js with advanced validation and performance monitoring**
 
-![Version](https://img.shields.io/badge/version-1.3.2-blue.svg)
+![Version](https://img.shields.io/badge/version-1.3.3-blue.svg)
 ![Status](https://img.shields.io/badge/status-Production_Ready-green.svg)
 ![Performance](https://img.shields.io/badge/performance-🟡_GOOD-yellow.svg)
 ![Success Rate](https://img.shields.io/badge/success_rate-100%25-brightgreen.svg)
+
+## 🔔 What’s new in v1.3.3
+
+- Optionaler WebGL-Vorverarbeitungs-Pfad (PoC): Grayscale + 3×3 Blur via Shader, per Toggle aktivierbar
+- Sichere Fallbacks auf CPU-Pipeline; Kernerkennung unverändert (Stabilität im Fokus)
+- Neues Perf-Test-Tool (Zeitfenster in Sekunden) inkl. periodischer Snapshots und Validierungs-Summary
+- Client-Log-Upload pro Test (`/save-client-log`) zur exakten Nachvollziehbarkeit auf dem Server
+- Präzise Overlay-Ausrichtung und Mapping-Fixes (keine linken/rechten Ränder; 1:1 Video-Pixel)
 
 ## 🔔 What’s new in v1.3.2
 
@@ -171,6 +179,7 @@ Files generated locally (not in Git):
 
 ## 📈 Version History
 
+- **v1.3.3** (2025-09-14): Optionaler WebGL-PoC mit UI-Toggle, Performance-Test-Automation, Client-Log-Uploads, Overlay/Mapping-Fixes
 - **v1.3.1** (2025-09-14): Validated & Optimized - Production ready with full monitoring
 - **v1.3** (2025-09-13): Stability & Multi-Frame - Advanced document detection
 - **v1.2** (2025-09-13): Enhanced Edge Detection - Improved preprocessing

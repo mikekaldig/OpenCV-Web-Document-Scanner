@@ -1,3 +1,17 @@
+# Version 1.3.3 - WebGL PoC (Basis 1.3.1)
+
+Datum: 2025-09-14
+
+Änderungen:
+
+- Optionaler WebGL-Vorverarbeitungs-Pfad (Grayscale + 3×3 Blur) mit UI-Toggle
+- Sichere Fallbacks auf CPU-Pipeline; Kernerkennung unverändert (Stabilität)
+- Neues Perf-Test-Tool (Zeitfenster) inkl. Snapshots und VALIDATION_SUMMARY
+- Upload kompletter Client-Logs pro Test via `/save-client-log` in `test-logs/`
+- Präzise Overlay-Ausrichtung und Mapping-Fixes (kein Rand links/rechts)
+
+---
+
 # Version 1.3.2 - Conservative & Clean (Basis 1.3.1)
 
 Datum: 2025-09-14

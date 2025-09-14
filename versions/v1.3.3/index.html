@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dokumenten-Scanner v1.3.3</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Lokale OpenCV.js verwenden -->
+    <script>
+        // Stub: capture OpenCV ready signal even if script.js isn't loaded yet
+        window.__opencvReadyFired = false;
+        window.onOpenCvReady = function() {
+            window.__opencvReadyFired = true;
+            try { console.log('OpenCV loader signaled ready'); } catch(e) {}
+        };
+    </script>
+    <script defer src="opencv.js" onload="onOpenCvReady();"></script>
+    <!-- WebGL helper (optional PoC) -->
+    <script defer src="webgl.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div id="main-menu">
+            <h1>Web Scanner v1.3.3</h1>
+            <p style="font-size: 0.8em; color: #888; margin: -10px 0 10px 0;">Optimized & Enhanced</p>
+            <p>Richten Sie Ihre Kamera auf ein Dokument, um es automatisch zu erkennen und zu scannen.</p>
+            <button id="start-button" class="control-button">Scan starten</button>
+            <p id="start-error" style="color:#ff6b6b; font-size:0.9em; margin-top:8px; display:none;"></p>
+        </div>
+
+        <div id="scanner-view" class="hidden">
+            <video id="video" playsinline autoplay muted></video>
+            <canvas id="overlay"></canvas>
+            <!-- Hidden canvas to host WebGL context -->
+            <canvas id="webgl-canvas" class="hidden"></canvas>
+            <div id="status-message">Kein Dokument erkannt...</div>
+            <div class="controls">
+                <button id="capture-button" class="control-button">Aufnehmen</button>
+                
+            </div>
+        </div>
+
+        <div id="result-view" class="hidden">
+            <h2 style="color: white; margin-bottom: 15px; font-size: 1.2em;">Scan-Ergebnis</h2>
+            <div id="image-container">
+                <img id="result-image" alt="Gescanntes Dokument">
+            </div>
+            <div class="controls">
+                <button id="rescan-button" class="control-button">Erneut scannen</button>
+                <a id="download-link" class="control-button" download="scan.png">Herunterladen</a>
+            </div>
+            <p id="ios-save-tip" style="color: white; font-size: 0.9em; margin-top: 15px; text-align: center; display: none;">
+                Tipp: Halten Sie das Bild gedrückt, um es zu speichern.
+            </p>
+        </div>
+
+        <!-- v1.3.3: Debug Log Panel für Handy-Testing -->
+        <div id="debug-panel" style="position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.9); color: #00ff00; font-family: monospace; font-size: 10px; max-height: 150px; overflow-y: auto; padding: 5px; border-top: 1px solid #333; z-index: 1000; display: none;">
+            <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #fff; font-weight: bold;">v1.3.3 Debug Log</span>
+                <button id="clear-log" style="background: #333; color: #fff; border: none; padding: 2px 8px; margin-left: auto;">Clear</button>
+            </div>
+            <div id="debug-content"></div>
+        </div>
+
+        <!-- v1.3.3: Top-right controls (Logs + WebGL toggle) -->
+        <div id="top-controls" style="position: fixed; top: 10px; right: 10px; display: flex; align-items: center; gap: 10px; z-index: 1001; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 20px);">
+            <label id="webgl-toggle-label" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="webgl-toggle">
+                WebGL (PoC)
+                <span id="webgl-toggle-state" style="margin-left: 4px; color: #fa6;">OFF</span>
+            </label>
+            <label id="testmode-toggle-label" title="Deaktiviert Auto-Scan für valide Performance-Tests" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="testmode-toggle">
+                Test Mode
+                <span id="testmode-toggle-state" style="margin-left: 4px; color: #fa6;">OFF</span>
+            </label>
+            <label id="perf-test-label" title="Automatischer Performance-Test" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
+                Perf Test
+                <input type="number" id="perf-test-seconds" min="5" max="30" value="12" style="width: 46px; padding: 0 4px; margin-left: 4px; background: #111; color: #fff; border: 1px solid #333; border-radius: 3px;">
+                <span style="opacity: 0.8;">s</span>
+                <button id="perf-test-start" style="background: #333; color: #fff; border: 1px solid #444; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Start</button>
+            </label>
+        </div>
+    <!-- Fallback floating Logs button (ensures visibility on very small screens) -->
+    <button id="debug-fab" title="Logs umschalten" style="position: fixed; right: 10px; bottom: 10px; z-index: 1001; background: rgba(0,0,0,0.75); color: #00ff00; border: 1px solid #333; padding: 8px 10px; font-size: 12px; border-radius: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">Logs</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
