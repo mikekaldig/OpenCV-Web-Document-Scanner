@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenCV Debug</title>
+</head>
+<body>
+    <h1>OpenCV Debug Test</h1>
+    <div id="status">Lade OpenCV...</div>
+    <div id="log"></div>
+
+    <script>
+        const status = document.getElementById('status');
+        const log = document.getElementById('log');
+        
+        function addLog(message) {
+            console.log(message);
+            log.innerHTML += '<p>' + message + '</p>';
+        }
+        
+        function onOpenCvReady() {
+            addLog('onOpenCvReady() wurde aufgerufen');
+            addLog('typeof cv: ' + typeof cv);
+            addLog('cv.Mat: ' + (cv && cv.Mat ? 'verfügbar' : 'nicht verfügbar'));
+            status.innerHTML = 'OpenCV geladen!';
+            status.style.color = 'green';
+        }
+        
+        addLog('Script startet...');
+        addLog('Lade opencv.js...');
+    </script>
+    
+    <script async src="opencv.js" onload="onOpenCvReady();" onerror="addLog('OpenCV Fehler beim Laden!'); status.innerHTML='OpenCV Fehler'; status.style.color='red';"></script>
+    
+    <script>
+        setTimeout(() => {
+            if (typeof cv === 'undefined') {
+                addLog('OpenCV nach 5 Sekunden nicht geladen');
+                status.innerHTML = 'OpenCV Timeout';
+                status.style.color = 'red';
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
