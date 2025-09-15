@@ -9,6 +9,9 @@ const ctx = canvas.getContext('2d');
 const startButton = document.getElementById('start-button');
 const captureButton = document.getElementById('capture-button');
 const rescanButton = document.getElementById('rescan-button');
+const addPageButton = document.getElementById('add-page-button');
+const createPdfButton = document.getElementById('create-pdf-button');
+const pageCounterEl = document.getElementById('page-counter');
 
 const mainMenu = document.getElementById('main-menu');
 const scannerView = document.getElementById('scanner-view');
@@ -17,6 +20,128 @@ const statusMessage = document.getElementById('status-message');
 const resultImage = document.getElementById('result-image');
 const downloadLink = document.getElementById('download-link');
 const startError = document.getElementById('start-error');
+
+// Multi-Page Scan State
+let scannedPages = []; // Array Base64 PNG Strings
+
+function resetMultiPageSession() {
+    scannedPages = [];
+    updatePageCounter();
+}
+
+function updatePageCounter() {
+    if (pageCounterEl) {
+        pageCounterEl.textContent = `Gespeicherte Seiten: ${scannedPages.length}`;
+    }
+    if (createPdfButton) {
+        createPdfButton.style.display = scannedPages.length > 0 ? 'inline-block' : 'none';
+    }
+}
+
+async function createPdfFromPages() {
+    if (!scannedPages.length) {
+        alert('Keine Seiten zum Erstellen eines PDFs.');
+        return;
+    }
+    // Falls jsPDF noch nicht geladen ist, versuchen wir es dynamisch nachzuladen
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+        addDebugLog('⚠️ jsPDF nicht vorhanden – versuche Nachladen...');
+        await ensureJsPdfLoaded();
+    }
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+        alert('PDF Bibliothek (jsPDF) konnte nicht geladen werden.');
+        return;
+    }
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    for (let i = 0; i < scannedPages.length; i++) {
+        const dataUrl = scannedPages[i];
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise(r => { img.onload = r; img.onerror = r; });
+        const ratio = Math.min(pageW / img.width, pageH / img.height);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        const x = (pageW - w) / 2;
+        const y = (pageH - h) / 2;
+        if (i > 0) pdf.addPage();
+        pdf.addImage(dataUrl, 'PNG', x, y, w, h);
+    }
+    pdf.save(`scan_${new Date().toISOString().slice(0,10)}.pdf`);
+    addDebugLog('📄 PDF erstellt mit ' + scannedPages.length + ' Seite(n)');
+    resetMultiPageSession();
+}
+
+if (addPageButton) {
+    addPageButton.addEventListener('click', () => {
+        if (!(resultImage && resultImage.src && resultImage.src.startsWith('data:image'))) {
+            alert('Kein gültiges Bild zum Hinzufügen gefunden.');
+            return;
+        }
+        const current = resultImage.src;
+        if (scannedPages[scannedPages.length - 1] !== current) {
+            scannedPages.push(current);
+            addDebugLog(`➕ Seite hinzugefügt (#${scannedPages.length})`);
+        } else {
+            addDebugLog('ℹ️ Seite nicht erneut hinzugefügt (Duplikat)');
+        }
+        updatePageCounter();
+        resultView.classList.add('hidden');
+        startScanner();
+    });
+}
+
+if (createPdfButton) {
+    createPdfButton.addEventListener('click', createPdfFromPages);
+}
+
+// Dynamisches Laden von jsPDF falls initial nicht verfügbar (Netzwerk-Lag etc.)
+let __jspdfLoadPromise = null;
+function loadJsPdfScript() {
+    if (__jspdfLoadPromise) return __jspdfLoadPromise;
+    __jspdfLoadPromise = new Promise((resolve) => {
+        try {
+            const existing = document.querySelector('script[data-dynamic-jspdf]');
+            if (existing) {
+                existing.addEventListener('load', () => resolve(true));
+                existing.addEventListener('error', () => resolve(false));
+                return;
+            }
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            s.crossOrigin = 'anonymous';
+            s.referrerPolicy = 'no-referrer';
+            s.setAttribute('data-dynamic-jspdf', '1');
+            s.onload = () => { addDebugLog('✅ jsPDF dynamisch geladen'); resolve(true); };
+            s.onerror = () => { addDebugLog('❌ jsPDF Nachladen fehlgeschlagen'); resolve(false); };
+            document.head.appendChild(s);
+        } catch (_) { resolve(false); }
+    });
+    return __jspdfLoadPromise;
+}
+
+async function ensureJsPdfLoaded(timeoutMs = 4000) {
+    if (window.jspdf && window.jspdf.jsPDF) return true;
+    await loadJsPdfScript();
+    if (window.jspdf && window.jspdf.jsPDF) return true;
+    // Warten in kleinen Intervallen (Race mit Netz / Cache)
+    const start = performance.now();
+    while (performance.now() - start < timeoutMs) {
+        if (window.jspdf && window.jspdf.jsPDF) return true;
+        await new Promise(r => setTimeout(r, 100));
+    }
+    return !!(window.jspdf && window.jspdf.jsPDF);
+}
+
+// Früh versuchen zu laden, falls der statische Tag blockiert wurde
+window.addEventListener('load', () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+        // Verzögert anstoßen damit Haupt-Thread frei bleibt
+        setTimeout(() => { ensureJsPdfLoaded(); }, 300);
+    }
+});
 
 // Hilfsfunktion: Overlay-Canvas exakt über dem Video ausrichten
 function alignOverlayToVideo() {
@@ -194,16 +319,35 @@ const clearLog = document.getElementById('clear-log');
 const debugFab = document.getElementById('debug-fab');
 
 // Performance-Optimierung für Mobilgeräte
-const MAX_PROCESSING_WIDTH = 640;
-
+// Dynamisch anpassbare Basis-Parameter
+let MAX_PROCESSING_WIDTH = 640; // wird je nach Speed-Tier skaliert
 let biggestContour = null;
 let documentStableCount = 0;
 let autoScanTimer = null;
-const STABLE_FRAMES_REQUIRED = 15; // Kürzere Zeit für mobile Geräte
-const AUTO_SCAN_DELAY = 1500; // Kürzere Verzögerung
+let STABLE_FRAMES_REQUIRED = 15; // kann dynamisch reduziert werden
+let AUTO_SCAN_DELAY = 1500; // wird bei hoher Confidence reduziert
+
+// Speed Tier System für schnelleres Tracking
+const SpeedTiers = {
+    QUALITY: { name: 'QUALITY', width: 720, bilateral: true, history: 4, stableFrames: 15, minDelay: 1200 },
+    NORMAL:  { name: 'NORMAL',  width: 640, bilateral: true, history: 3, stableFrames: 10, minDelay: 1000 },
+    FAST:    { name: 'FAST',    width: 520, bilateral: false, history: 2, stableFrames: 7,  minDelay: 800 },
+    ULTRA:   { name: 'ULTRA',   width: 440, bilateral: false, history: 2, stableFrames: 5,  minDelay: 650 }
+};
+let currentSpeedTier = SpeedTiers.NORMAL;
+
+function applySpeedTier(tier) {
+    currentSpeedTier = tier;
+    MAX_PROCESSING_WIDTH = tier.width;
+    STABLE_FRAMES_REQUIRED = tier.stableFrames;
+    // AUTO_SCAN_DELAY dynamisch später berechnet (abhängig von Confidence)
+    addDebugLog(`🚀 Speed Tier: <span style="color:#0af">${tier.name}</span> (w=${tier.width}, hist=${tier.history}, stable=${tier.stableFrames})`);
+}
+applySpeedTier(SpeedTiers.NORMAL);
 
 // v1.3.1: Optimierte Multi-Frame Processing Variablen
-const FRAME_HISTORY_SIZE = 4; // Optimiert: 4 Frames für bessere Performance
+// Wird jetzt durch Speed Tier bestimmt
+let FRAME_HISTORY_SIZE = currentSpeedTier.history; // initial
 const CONFIDENCE_THRESHOLD = 0.62; // v1.3.2: leicht gesenkt für bessere Erkennung bei schwieriger Beleuchtung
 const HIGH_CONFIDENCE_THRESHOLD = 0.85; // Neu: Threshold für sofortige Erkennung
 let frameHistory = []; // History der letzten Frames
@@ -419,11 +563,22 @@ setTimeout(() => {
 startButton.addEventListener('click', startScanner);
 captureButton.addEventListener('click', captureAndWarp);
 rescanButton.addEventListener('click', () => {
-    resultView.classList.add('hidden');
-    if (biggestContour) {
-        biggestContour.delete();
-        biggestContour = null;
+    // Entfernt die zuletzt automatisch hinzugefügte Seite (Undo)
+    if (scannedPages.length > 0) {
+        const removed = scannedPages.pop();
+        addDebugLog(`↩️ Letzte Seite entfernt (jetzt ${scannedPages.length})`);
+        updatePageCounter();
+        // Falls es noch Seiten gibt, letzte wieder anzeigen
+        if (scannedPages.length > 0) {
+            const last = scannedPages[scannedPages.length - 1];
+            resultImage.src = last;
+            downloadLink.href = last;
+        }
+    } else {
+        addDebugLog('↩️ Keine Seite zum Entfernen');
     }
+    resultView.classList.add('hidden');
+    if (biggestContour) { try { biggestContour.delete(); } catch(_) {} biggestContour = null; }
     startScanner();
 });
 
@@ -708,6 +863,25 @@ function processFrame() {
     const dsize = new cv.Size(MAX_PROCESSING_WIDTH, Math.round(video.videoHeight * scale));
         cv.resize(src, scaled, dsize, 0, 0, cv.INTER_AREA);
 
+        // Dynamische Anpassung: Speed Tier Wechsel abhängig von Frame-Zeit & Stabilität
+        if (performanceStats.frameCount > 30) {
+            const avg = performanceStats.avgFrameTime;
+            // Upgrade (schneller machen) wenn wir sehr viele langsame Frames (tracking wirkt träge)
+            if (avg > 95 && currentSpeedTier !== SpeedTiers.FAST) {
+                applySpeedTier(SpeedTiers.FAST);
+                FRAME_HISTORY_SIZE = currentSpeedTier.history;
+            } else if (avg > 120 && currentSpeedTier !== SpeedTiers.ULTRA) {
+                applySpeedTier(SpeedTiers.ULTRA);
+                FRAME_HISTORY_SIZE = currentSpeedTier.history;
+            } else if (avg < 70 && currentSpeedTier === SpeedTiers.FAST) {
+                applySpeedTier(SpeedTiers.NORMAL);
+                FRAME_HISTORY_SIZE = currentSpeedTier.history;
+            } else if (avg < 55 && currentSpeedTier === SpeedTiers.NORMAL) {
+                applySpeedTier(SpeedTiers.QUALITY);
+                FRAME_HISTORY_SIZE = currentSpeedTier.history;
+            }
+        }
+
         // v1.3: Enhanced Pipeline with Multi-Frame Processing
         // Optionale WebGL Vorverarbeitung (PoC): grayscale + optional blur
         let preprocMat = null;
@@ -806,9 +980,14 @@ function processFrame() {
         }
 
         // Stage 2: Bilateral Filter für Rauschreduzierung
-        let filtered = new cv.Mat();
+    let filtered = new cv.Mat();
         try {
-            cv.bilateralFilter(procFrame, filtered, 9, 75, 75);
+            if (currentSpeedTier.bilateral) {
+                cv.bilateralFilter(procFrame, filtered, 7, 60, 60);
+            } else {
+                // Schnelleres Filter für schnelle Modi
+                cv.medianBlur(procFrame, filtered, 3);
+            }
 
             // Stage 3: Adaptive Canny Thresholds
             const medianVal = calculateSimpleMedian(filtered);
@@ -925,13 +1104,12 @@ function processFrame() {
                     statusMessage.textContent = 'Stabil erkannt. Test Mode aktiv – kein Auto-Scan.';
                     if (autoScanTimer) { clearTimeout(autoScanTimer); autoScanTimer = null; }
                 } else {
-                    statusMessage.textContent = 'Stabil erkannt. Scan wird ausgelöst...';
+                    // Dynamischer Delay: hohe Confidence => schnellerer Trigger
+                    const dynamicDelay = Math.max(currentSpeedTier.minDelay, Math.round(AUTO_SCAN_DELAY * (1.0 - Math.min(0.35, (confidence - 0.65)))));
+                    statusMessage.textContent = `Stabil erkannt. Scan in ${dynamicDelay}ms...`;
                     if (!autoScanTimer) {
-                        addDebugLog(`📸 <span style="color: #0f0">AUTO-SCAN</span> wird in ${AUTO_SCAN_DELAY}ms ausgelöst`);
-                        autoScanTimer = setTimeout(() => {
-                            safeCapture();
-                            autoScanTimer = null;
-                        }, AUTO_SCAN_DELAY);
+                        addDebugLog(`📸 <span style=\"color:#0f0\">AUTO-SCAN</span> (Delay=${dynamicDelay}ms, Tier=${currentSpeedTier.name})`);
+                        autoScanTimer = setTimeout(() => { safeCapture(); autoScanTimer = null; }, dynamicDelay);
                     }
                 }
             } else {
@@ -1588,6 +1766,17 @@ function captureAndWarp() {
 
         resultImage.src = finalImageData;
         downloadLink.href = finalImageData;
+        // Automatisches Speichern jeder neuen Seite (kein Duplikat zur letzten)
+        if (scannedPages.length === 0) {
+            scannedPages.push(finalImageData);
+            addDebugLog('➕ Seite #1 automatisch hinzugefügt');
+        } else if (scannedPages[scannedPages.length - 1] !== finalImageData) {
+            scannedPages.push(finalImageData);
+            addDebugLog(`➕ Seite #${scannedPages.length} automatisch hinzugefügt`);
+        } else {
+            addDebugLog('ℹ️ Aufnahme entspricht letzter Seite – nicht erneut gespeichert');
+        }
+        updatePageCounter();
         
         // JETZT erst den Scanner stoppen, nachdem das Bild erfasst wurde
         stopScanner();
@@ -1595,6 +1784,7 @@ function captureAndWarp() {
         resultImage.onload = () => {
             scannerView.classList.add('hidden');
             resultView.classList.remove('hidden');
+            addDebugLog('📸 Einzelbild erfasst – bereit zum Hinzufügen oder PDF-Erstellung');
         };
 
     } catch (error) {

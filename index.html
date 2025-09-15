@@ -17,6 +17,8 @@
     <script defer src="opencv.js" onload="onOpenCvReady();"></script>
     <!-- WebGL helper (optional PoC) -->
     <script defer src="webgl.js"></script>
+    <!-- jsPDF für PDF-Erstellung -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-/FhJv1+qsSVqSdz+CA0nVddOZXS6jttuPAHyBs+K6TfGsDzpDHK5vVsQt1zAr72Xd1LSeX776BFqe7rum1lY3w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
     <div class="container">
@@ -41,15 +43,18 @@
         </div>
 
         <div id="result-view" class="hidden">
-            <h2 style="color: white; margin-bottom: 15px; font-size: 1.2em;">Scan-Ergebnis</h2>
+            <h2 style="color: white; margin-bottom: 12px; font-size: 1.15em;">Seitenvorschau</h2>
             <div id="image-container">
                 <img id="result-image" alt="Gescanntes Dokument">
             </div>
-            <div class="controls">
-                <button id="rescan-button" class="control-button">Erneut scannen</button>
-                <a id="download-link" class="control-button" download="scan.png">Herunterladen</a>
+            <div id="page-counter" style="color:#fff; text-align:center; margin:10px 0; font-size:0.9em;">Gespeicherte Seiten: 0</div>
+            <div class="controls" style="flex-wrap:wrap; gap:8px; justify-content:center;">
+                <button id="rescan-button" class="control-button" style="background:#444;">Verwerfen</button>
+                <button id="add-page-button" class="control-button" style="background:#2c7;">Nächste Seite</button>
+                <button id="create-pdf-button" class="control-button" style="background:#06c; display:none;">PDF erstellen</button>
+                <a id="download-link" class="control-button" download="scan.png" style="background:#555;">PNG speichern</a>
             </div>
-            <p id="ios-save-tip" style="color: white; font-size: 0.9em; margin-top: 15px; text-align: center; display: none;">
+            <p id="ios-save-tip" style="color: white; font-size: 0.8em; margin-top: 12px; text-align: center; display: none;">
                 Tipp: Halten Sie das Bild gedrückt, um es zu speichern.
             </p>
         </div>
