@@ -1,25 +1,197 @@
+// --- DOM elements & globals ---
 let cvReady = false;
 let stream = null;
+
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
 
-// DOM Elements
-const mainMenu = document.getElementById('main-menu');
-const scannerView = document.getElementById('scanner-view');
-const resultView = document.getElementById('result-view');
 const startButton = document.getElementById('start-button');
 const captureButton = document.getElementById('capture-button');
 const rescanButton = document.getElementById('rescan-button');
+
+const mainMenu = document.getElementById('main-menu');
+const scannerView = document.getElementById('scanner-view');
+const resultView = document.getElementById('result-view');
 const statusMessage = document.getElementById('status-message');
 const resultImage = document.getElementById('result-image');
 const downloadLink = document.getElementById('download-link');
+const startError = document.getElementById('start-error');
+
+// Hilfsfunktion: Overlay-Canvas exakt über dem Video ausrichten
+function alignOverlayToVideo() {
+    try {
+        if (!video || !canvas || !scannerView) return;
+        const vRect = video.getBoundingClientRect();
+        const sRect = scannerView.getBoundingClientRect();
+        // Position relativ zur Scanner-View berechnen
+        const relTop = vRect.top - sRect.top;
+        const relLeft = vRect.left - sRect.left;
+        canvas.style.position = 'absolute';
+        canvas.style.pointerEvents = 'none';
+        canvas.style.top = relTop + 'px';
+        canvas.style.left = relLeft + 'px';
+        canvas.style.width = vRect.width + 'px';
+        canvas.style.height = vRect.height + 'px';
+        // Einmaliges Debugging der Geometrie
+        if (!window.__overlayGeomLogged) {
+            window.__overlayGeomLogged = true;
+            addDebugLog(`📐 Overlay-Align: videoCss=${Math.round(vRect.width)}x${Math.round(vRect.height)} at (${Math.round(vRect.left - sRect.left)},${Math.round(vRect.top - sRect.top)}) | videoPx=${video.videoWidth}x${video.videoHeight}`);
+        }
+    } catch (_) { /* ignore layout errors */ }
+}
+
+// WebGL PoC elements
+const webglToggle = document.getElementById('webgl-toggle');
+const webglCanvas = document.getElementById('webgl-canvas');
+const webglToggleState = document.getElementById('webgl-toggle-state');
+let webglSupported = false;
+let webglEnabled = false;
+let webglInitDone = false;
+// WebGL Quali-Optionen wieder deaktiviert (zurück zur Basis)
+const webglDownscaleSel = null;
+const webglBlurChk = null;
+let webglDownscale = 1.0;
+let webglDoBlur = true;
+
+// v1.3.3: Test Mode (deaktiviert Auto-Scan)
+const testModeToggle = document.getElementById('testmode-toggle');
+const testModeToggleState = document.getElementById('testmode-toggle-state');
+let testMode = false;
+
+// v1.3.3: Perf Test controls
+const perfTestStartBtn = document.getElementById('perf-test-start');
+const perfTestSecondsInput = document.getElementById('perf-test-seconds');
+let perfTestTimer = null;
+let perfTestInterval = null;
+let perfTestActive = false;
+let perfTestId = null;
+
+function getDebugPanelText() {
+    try {
+        // Concatenate all debug entries as plain text lines
+        const nodes = Array.from(debugContent.children || []);
+        return nodes.map(n => n.textContent || '').join('\n');
+    } catch (_) {
+        return '';
+    }
+}
+
+async function uploadClientLog(reasonTag = 'FINAL', useBeaconIfPossible = false) {
+    try {
+        const content = getDebugPanelText();
+        const meta = {
+            id: perfTestId || undefined,
+            reason: reasonTag,
+            seconds: (perfTestSecondsInput && parseInt(perfTestSecondsInput.value || '0', 10)) || undefined,
+            timestamp: new Date().toISOString(),
+            webglSupported,
+            webglEnabled,
+            testMode,
+        };
+        const payload = JSON.stringify({ content, meta });
+        if (useBeaconIfPossible && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+            try {
+                const ok = navigator.sendBeacon('/save-client-log', new Blob([payload], { type: 'application/json' }));
+                if (ok) {
+                    logInfoThrottled('CLIENT_LOG_UPLOAD beacon-ok');
+                    return;
+                }
+            } catch (_) { /* fall through */ }
+        }
+        await fetch('/save-client-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+        });
+        logInfoThrottled('CLIENT_LOG_UPLOAD fetch-ok');
+    } catch (e) {
+        // Swallow errors; logging should not break the app
+    }
+}
+
+function finalizePerfTest(reason = 'PERF_TEST_END') {
+    try {
+        if (!perfTestActive) return;
+        perfTestActive = false;
+        if (perfTestTimer) { clearTimeout(perfTestTimer); perfTestTimer = null; }
+        if (perfTestInterval) { clearInterval(perfTestInterval); perfTestInterval = null; }
+    logQuickPerfSnapshot(reason);
+    logValidationSummary();
+        addDebugLog('🧪 <span style="color:#0af">PERF TEST DONE</span>');
+    logErrorToServer('PERF_TEST_DONE');
+    // Upload per-test client log (prefer beacon on finalize)
+    uploadClientLog('PERF_TEST_DONE', true);
+        if (perfTestStartBtn) {
+            perfTestStartBtn.disabled = false;
+            perfTestStartBtn.textContent = 'Start';
+        }
+    } catch (_) {}
+}
+
+// Robust WebGL capability check
+function checkWebGLSupport() {
+    try {
+        const testCanvas = document.createElement('canvas');
+        const gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
+        return !!gl;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Try to initialize WebGL when available (safe to call multiple times)
+function initWebGLIfAvailable() {
+    if (webglInitDone || webglSupported) return;
+    try {
+        const basicSupport = checkWebGLSupport();
+        if (!basicSupport) {
+            // keep N/A state
+            return;
+        }
+        if (webglCanvas && typeof WebGLPoC !== 'undefined' && WebGLPoC.initWebGL) {
+            if (!webglCanvas.width || !webglCanvas.height) {
+                webglCanvas.width = 16;
+                webglCanvas.height = 16;
+            }
+            WebGLPoC.initWebGL(webglCanvas);
+            webglSupported = true;
+            webglInitDone = true;
+            addDebugLog('🧪 <span style="color: #0af">WebGL PoC initialisiert</span>');
+            if (webglToggle) webglToggle.disabled = false;
+            if (webglToggleState) {
+                webglToggleState.textContent = webglToggle && webglToggle.checked ? 'ON' : 'OFF';
+                webglToggleState.style.color = webglToggle && webglToggle.checked ? '#0f0' : '#fa6';
+            }
+            logInfoThrottled('WEBGL_INIT success');
+        }
+    } catch (e) {
+        addDebugLog(`🧪 <span style=\"color:#f80\">WebGL Init Fehler:</span> ${e.message}`);
+        logInfoThrottled(`WEBGL_INIT error ${e.message}`);
+    }
+}
+
+// Small helpers for user-facing start errors
+function showStartError(message) {
+    if (startError) {
+        startError.textContent = message;
+        startError.style.display = 'block';
+    }
+}
+function clearStartError() {
+    if (startError) {
+        startError.textContent = '';
+        startError.style.display = 'none';
+    }
+}
 
 // v1.2: Debug Panel Elements
 const debugPanel = document.getElementById('debug-panel');
 const debugContent = document.getElementById('debug-content');
 const debugToggle = document.getElementById('debug-toggle');
 const clearLog = document.getElementById('clear-log');
+const debugFab = document.getElementById('debug-fab');
 
 // Performance-Optimierung für Mobilgeräte
 const MAX_PROCESSING_WIDTH = 640;
@@ -35,9 +207,35 @@ const FRAME_HISTORY_SIZE = 4; // Optimiert: 4 Frames für bessere Performance
 const CONFIDENCE_THRESHOLD = 0.62; // v1.3.2: leicht gesenkt für bessere Erkennung bei schwieriger Beleuchtung
 const HIGH_CONFIDENCE_THRESHOLD = 0.85; // Neu: Threshold für sofortige Erkennung
 let frameHistory = []; // History der letzten Frames
+
+    // v1.3.3: Test Mode toggle initialisieren
+    if (testModeToggle) {
+        testMode = !!testModeToggle.checked;
+        if (testModeToggleState) {
+            testModeToggleState.textContent = testMode ? 'ON' : 'OFF';
+            testModeToggleState.style.color = testMode ? '#0f0' : '#fa6';
+        }
+        testModeToggle.addEventListener('change', () => {
+            testMode = !!testModeToggle.checked;
+            if (testModeToggleState) {
+                testModeToggleState.textContent = testMode ? 'ON' : 'OFF';
+                testModeToggleState.style.color = testMode ? '#0f0' : '#fa6';
+            }
+            addDebugLog(`🧪 Test Mode ${testMode ? '<span style="color:#0f0">aktiv</span>' : '<span style=\"color:#fa6\">inaktiv</span>'}`);
+            logInfoThrottled(`TESTMODE_TOGGLE ${testMode ? 'on' : 'off'}`);
+            // Test Mode deaktiviert Auto-Scan => laufende Timer stoppen
+            if (testMode && autoScanTimer) {
+                clearTimeout(autoScanTimer);
+                autoScanTimer = null;
+            }
+        });
+    }
 let contourHistory = []; // History der gefundenen Konturen
 let confidenceHistory = []; // History der Confidence-Werte
 let frameCounter = 0;
+// v1.3.3+: Detektionsgröße und Mapping-Faktoren (Detektionsbild -> Video)
+let lastDetW = 0, lastDetH = 0;
+let lastInvDetScaleX = 1.0, lastInvDetScaleY = 1.0;
 
 // v1.3.1: Performance Monitoring & Validation
 let performanceStats = {
@@ -46,6 +244,32 @@ let performanceStats = {
     lastFrameTime: performance.now(),
     adaptiveThreshold: CONFIDENCE_THRESHOLD
 };
+
+// v1.3.3: Per-window performance counters (WebGL vs CPU)
+let perfWindow = {
+    webglFrames: 0,
+    cpuFrames: 0,
+    sumMsWebGL: 0,
+    sumMsCPU: 0
+};
+
+// v1.3.3: Quick perf snapshot (on-demand) without waiting for 60-frame boundary
+function logQuickPerfSnapshot(reason = 'SNAPSHOT') {
+    try {
+        const webglAvg = perfWindow.webglFrames > 0 ? (perfWindow.sumMsWebGL / perfWindow.webglFrames) : null;
+        const cpuAvg = perfWindow.cpuFrames > 0 ? (perfWindow.sumMsCPU / perfWindow.cpuFrames) : null;
+        const data = {
+            reason,
+            webgl: { supported: webglSupported, enabled: webglEnabled, frames: perfWindow.webglFrames, avgMs: webglAvg },
+            cpu: { frames: perfWindow.cpuFrames, avgMs: cpuAvg },
+            timestamp: new Date().toISOString()
+        };
+        addDebugLog(`📈 Snapshot [${reason}] | WebGL: ${webglEnabled ? 'on' : 'off'} (frames=${perfWindow.webglFrames}, avgMs=${webglAvg?.toFixed(1) ?? 'n/a'}) | CPU: (frames=${perfWindow.cpuFrames}, avgMs=${cpuAvg?.toFixed(1) ?? 'n/a'})`);
+        logErrorToServer(`PERF_SNAPSHOT: ${JSON.stringify(data)}`);
+    } catch (e) {
+        // ignore snapshot errors
+    }
+}
 
 // v1.3.1: Erweiterte Validierungs-Metriken
 let validationStats = {
@@ -74,6 +298,10 @@ let validationStats = {
 
 // --- Initialization ---
 function onOpenCvReady() {
+    if (cvReady) {
+        // Avoid double init
+        return;
+    }
     console.log('OpenCV is ready.');
     console.log('cv object:', typeof cv !== 'undefined' ? 'verfügbar' : 'nicht verfügbar');
     cvReady = true;
@@ -81,22 +309,111 @@ function onOpenCvReady() {
     startButton.textContent = 'Scan starten';
     console.log('Start-Button aktiviert');
 
-    // v1.3.2: Debug logging mit Session-Start (Basis 1.3.1)
-    addDebugLog('🚀 <span style="color: #0f0">OpenCV geladen</span> - v1.3.2 (Basis 1.3.1) bereit');
+    // v1.3.1: Debug logging mit Session-Start
+    addDebugLog('🚀 <span style="color: #0f0">OpenCV geladen</span> - v1.3.3 (Basis 1.3.1) bereit');
     addDebugLog(`📱 Browser: ${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'}`);
     addDebugLog(`🎯 Multi-Frame: ${FRAME_HISTORY_SIZE} Frames | Confidence: ${CONFIDENCE_THRESHOLD}`);
     addDebugLog(`⚡ Performance: ${MAX_PROCESSING_WIDTH}px | Auto-Scan: ${AUTO_SCAN_DELAY}ms`);
     addDebugLog(`🔬 <span style="color: #0af">Validation-System aktiviert</span> - Session: ${new Date().toLocaleTimeString()}`);
+    // One-time server info
+    logInfoThrottled('OpenCV ready v1.3.3 (basis 1.3.1)');
+
+    // Try to init WebGL PoC
+    try {
+        const basicSupport = checkWebGLSupport();
+        if (!basicSupport) {
+            webglSupported = false;
+            addDebugLog('🧪 <span style="color: #888">WebGL nicht verfügbar (Capability-Check)</span>');
+            logInfoThrottled('WEBGL_CAPABILITY unsupported');
+        } else if (webglCanvas && typeof WebGLPoC !== 'undefined' && WebGLPoC.initWebGL) {
+            // Ensure canvas has a minimal size before context init
+            if (!webglCanvas.width || !webglCanvas.height) {
+                webglCanvas.width = 16;
+                webglCanvas.height = 16;
+            }
+            WebGLPoC.initWebGL(webglCanvas);
+            webglSupported = true;
+            webglInitDone = true;
+            addDebugLog('🧪 <span style="color: #0af">WebGL PoC verfügbar</span>');
+            logInfoThrottled('WEBGL_CAPABILITY supported');
+        } else {
+            addDebugLog('🧪 <span style="color: #888">WebGL PoC nicht verfügbar</span>');
+            if (typeof WebGLPoC === 'undefined') {
+                logInfoThrottled('WEBGL_POC missing');
+            }
+            // Schedule retries to allow deferred webgl.js to load
+            setTimeout(initWebGLIfAvailable, 300);
+            setTimeout(initWebGLIfAvailable, 1200);
+        }
+    } catch (e) {
+        webglSupported = false;
+        addDebugLog(`🧪 <span style="color: #f80">WebGL nicht unterstützt:</span> ${e.message}`);
+        logInfoThrottled(`WEBGL_ERROR ${e.message}`);
+    }
+
+    if (webglToggle) {
+        if (!webglSupported) {
+            webglToggle.checked = false;
+            webglToggle.disabled = true;
+            webglEnabled = false;
+            if (webglToggleState) {
+                webglToggleState.textContent = 'N/A';
+                webglToggleState.style.color = '#888';
+            }
+        }
+        webglToggle.addEventListener('change', (e) => {
+            webglEnabled = !!webglToggle.checked && webglSupported;
+            addDebugLog(`🧪 WebGL ${webglEnabled ? '<span style="color:#0f0">aktiv</span>' : '<span style="color:#888">inaktiv</span>'}`);
+            // Also send a server-side info for later analysis
+            logInfoThrottled(`WEBGL_TOGGLE ${webglEnabled ? 'on' : 'off'}`);
+            if (webglToggleState) {
+                webglToggleState.textContent = webglEnabled ? 'ON' : 'OFF';
+                webglToggleState.style.color = webglEnabled ? '#0f0' : '#fa6';
+            }
+            // Reset perf window and schedule a quick snapshot after 6s
+            perfWindow.webglFrames = 0;
+            perfWindow.cpuFrames = 0;
+            perfWindow.sumMsWebGL = 0;
+            perfWindow.sumMsCPU = 0;
+            setTimeout(() => logQuickPerfSnapshot(webglEnabled ? 'TOGGLE_ON_6S' : 'TOGGLE_OFF_6S'), 6000);
+            // If toggled ON, also schedule an automatic validation summary after ~15s
+            if (webglEnabled) {
+                setTimeout(() => {
+                    // Only summarize if WebGL still enabled to avoid mixing windows
+                    if (webglEnabled) {
+                        logValidationSummary();
+                    }
+                }, 15000);
+            }
+        });
+        // Initialize visible state
+        if (webglToggleState) {
+            webglToggleState.textContent = (webglSupported && webglToggle.checked) ? 'ON' : (webglSupported ? 'OFF' : 'N/A');
+            webglToggleState.style.color = (webglSupported && webglToggle.checked) ? '#0f0' : (webglSupported ? '#fa6' : '#888');
+        }
+    }
+
+    // WebGL Quali-Optionen derzeit deaktiviert
 }
+
+// If opencv.js loaded before this script, ensure initialization runs
+if (window.__opencvReadyFired && !cvReady) {
+    try { onOpenCvReady(); } catch (e) { console.error('Error running onOpenCvReady immediate:', e); }
+}
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.__opencvReadyFired && !cvReady) {
+        try { onOpenCvReady(); } catch (e) { console.error('Error running onOpenCvReady post-DOM:', e); }
+    }
+});
 
 // Fallback falls OpenCV nicht lädt
 setTimeout(() => {
     if (!cvReady) {
-        console.error('OpenCV hat nach 10 Sekunden nicht geladen');
-        startButton.textContent = 'OpenCV Ladefehler';
-        startButton.disabled = true;
+        console.error('OpenCV hat nach 8 Sekunden nicht geladen');
+        startButton.textContent = 'Warte auf OpenCV...';
+        startButton.disabled = false;
     }
-}, 10000);
+}, 8000);
 
 // --- Event Listeners ---
 startButton.addEventListener('click', startScanner);
@@ -111,20 +428,126 @@ rescanButton.addEventListener('click', () => {
 });
 
 // v1.2: Debug Panel Event Listeners
-debugToggle.addEventListener('click', () => {
-    if (debugPanel.style.display === 'none' || !debugPanel.style.display) {
-        debugPanel.style.display = 'block';
-        debugToggle.textContent = 'Hide Logs';
-    } else {
-        debugPanel.style.display = 'none';
-        debugToggle.textContent = 'Show Logs';
-    }
-});
+if (debugToggle) {
+    debugToggle.addEventListener('click', () => {
+        if (debugPanel.style.display === 'none' || !debugPanel.style.display) {
+            debugPanel.style.display = 'block';
+            debugToggle.textContent = 'Hide Logs';
+        } else {
+            debugPanel.style.display = 'none';
+            debugToggle.textContent = 'Show Logs';
+        }
+    });
+}
 
 clearLog.addEventListener('click', () => {
     debugContent.innerHTML = '';
     addDebugLog('Debug log cleared');
 });
+
+// Fallback floating Logs button toggler
+if (debugFab) {
+    debugFab.addEventListener('click', () => {
+        const showing = (debugPanel.style.display === 'block');
+        debugPanel.style.display = showing ? 'none' : 'block';
+        if (debugToggle) debugToggle.textContent = showing ? 'Show Logs' : 'Hide Logs';
+    });
+}
+
+// v1.3.3: Automated Perf Test
+function startPerfTest() {
+    if (!perfTestSecondsInput) return;
+    const seconds = Math.max(5, Math.min(30, parseInt(perfTestSecondsInput.value || '12', 10)));
+    // Ensure we are in scanner view and running
+    if (!(scannerView && !scannerView.classList.contains('hidden')) && startButton) {
+        try { startButton.click(); } catch (_) {}
+    }
+    // Force Test Mode ON during the perf window, remember previous state
+    const prevTestMode = testMode;
+    if (!testMode) {
+        testMode = true;
+        if (testModeToggle) testModeToggle.checked = true;
+        if (testModeToggleState) {
+            testModeToggleState.textContent = 'ON';
+            testModeToggleState.style.color = '#0f0';
+        }
+        addDebugLog('🧪 Test Mode <span style="color:#0f0">aktiv</span> (erzwungen für Perf-Test)');
+        // Cancel any pending auto-scan to keep test clean
+        if (autoScanTimer) { clearTimeout(autoScanTimer); autoScanTimer = null; }
+    }
+    // Reset per-window counters for a clean measurement
+    perfWindow.webglFrames = 0;
+    perfWindow.cpuFrames = 0;
+    perfWindow.sumMsWebGL = 0;
+    perfWindow.sumMsCPU = 0;
+    const meta = { seconds, webglSupported, webglEnabled, timestamp: new Date().toISOString() };
+    addDebugLog(`🧪 <span style="color:#0af">PERF TEST START</span> ${seconds}s | WebGL: ${webglEnabled ? 'on' : 'off'}`);
+    logErrorToServer(`PERF_TEST_START: ${JSON.stringify(meta)}`);
+    // Create a simple test id for grouping files server-side
+    perfTestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // Upload initial log snapshot at start (connectivity check)
+    uploadClientLog('START', true);
+    // Disable button during run
+    if (perfTestStartBtn) {
+        perfTestStartBtn.disabled = true;
+        perfTestStartBtn.textContent = 'Running…';
+    }
+    perfTestActive = true;
+    // Periodic snapshots while running (helps on mobile timer throttling)
+    if (perfTestInterval) clearInterval(perfTestInterval);
+    perfTestInterval = setInterval(() => {
+        if (perfTestActive) logQuickPerfSnapshot('PERF_TEST_TICK');
+    }, 5000);
+    // Schedule end-of-test actions
+    if (perfTestTimer) clearTimeout(perfTestTimer);
+    perfTestTimer = setTimeout(() => {
+        finalizePerfTest('PERF_TEST_END');
+        // Restore previous Test Mode state
+        if (!prevTestMode) {
+            testMode = false;
+            if (testModeToggle) testModeToggle.checked = false;
+            if (testModeToggleState) {
+                testModeToggleState.textContent = 'OFF';
+                testModeToggleState.style.color = '#fa6';
+            }
+            addDebugLog('🧪 Test Mode <span style="color:#fa6">inaktiv</span> (zurückgesetzt)');
+        }
+    }, seconds * 1000);
+}
+
+if (perfTestStartBtn) {
+    perfTestStartBtn.addEventListener('click', startPerfTest);
+}
+
+// Ensure we finalize perf test if the tab goes to background or unloads
+let perfFinalizeBound = false;
+function bindPerfFinalizeGuards() {
+    if (perfFinalizeBound) return;
+    perfFinalizeBound = true;
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && perfTestActive) { finalizePerfTest('PERF_TEST_VISIBILITY'); uploadClientLog('VISIBILITY', true); }
+    });
+    window.addEventListener('pagehide', () => { if (perfTestActive) { finalizePerfTest('PERF_TEST_PAGEHIDE'); uploadClientLog('PAGEHIDE', true); } });
+    window.addEventListener('beforeunload', () => { if (perfTestActive) { finalizePerfTest('PERF_TEST_BEFOREUNLOAD'); uploadClientLog('BEFOREUNLOAD', true); } });
+}
+bindPerfFinalizeGuards();
+
+// Capture unexpected errors into the debug log and server log
+window.addEventListener('error', (ev) => {
+    try {
+        const msg = ev?.message || 'Uncaught error';
+        addDebugLog(`❗ <span style="color:#f55">ERROR:</span> ${msg}`);
+        logErrorToServer(`CLIENT_ERROR ${msg}`);
+    } catch (_) {}
+}, true);
+
+window.addEventListener('unhandledrejection', (ev) => {
+    try {
+        const reason = ev?.reason?.message || ev?.reason || 'unhandledrejection';
+        addDebugLog(`❗ <span style="color:#f55">UNHANDLED REJECTION:</span> ${reason}`);
+        logErrorToServer(`CLIENT_UNHANDLED_REJECTION ${reason}`);
+    } catch (_) {}
+}, true);
 
 // v1.2: Debug Logging Function
 function addDebugLog(message) {
@@ -155,42 +578,63 @@ function addDebugLog(message) {
 }
 
 // --- Core Functions ---
+
+// Helper: robust error -> string
+function formatErr(err) {
+    try {
+        if (err === undefined) return 'undefined';
+        if (err === null) return 'null';
+        if (typeof err === 'string') return err;
+        if (typeof err === 'number') return String(err);
+        if (err && typeof err === 'object') {
+            if (err.message) return String(err.message);
+            try { return JSON.stringify(err); } catch (_) { return Object.prototype.toString.call(err); }
+        }
+        return String(err);
+    } catch (_) {
+        return '[unformatable error]';
+    }
+}
 async function startScanner() {
     console.log('startScanner aufgerufen, cvReady:', cvReady);
     if (!cvReady) {
-        console.error('OpenCV noch nicht bereit');
-        return;
+        console.warn('OpenCV noch nicht bereit – starte Kamera trotzdem und warte im Loop.');
+        addDebugLog('⏳ Warte auf OpenCV, Kamera wird bereits gestartet...');
     }
     console.log('Versuche Kamera-Zugriff...');
     try {
-        const constraints = { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+        startButton.disabled = true;
+        startButton.textContent = 'Starte Kamera...';
+        const constraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
         console.log('Rufe getUserMedia auf mit constraints:', constraints);
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         console.log('Stream erhalten:', stream);
         video.srcObject = stream;
         console.log('Video srcObject gesetzt');
 
-        video.onloadedmetadata = () => {
+        const onReady = () => {
             console.log('Video metadata geladen');
-            video.play();
+            video.play().catch(() => {});
             mainMenu.classList.add('hidden');
             scannerView.classList.remove('hidden');
 
-            setTimeout(() => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                const videoRect = video.getBoundingClientRect();
-                canvas.style.width = videoRect.width + 'px';
-                canvas.style.height = videoRect.height + 'px';
-                canvas.style.top = video.offsetTop + 'px';
-                canvas.style.left = video.offsetLeft + 'px';
-                requestAnimationFrame(processFrame);
-            }, 100);
+            // Sync overlay canvas to actual video pixel size (Backstore) und CSS-Position
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            alignOverlayToVideo();
+            requestAnimationFrame(processFrame);
         };
+        if (video.readyState >= 1) {
+            onReady();
+        } else {
+            video.onloadedmetadata = onReady;
+        }
 
     } catch (err) {
         statusMessage.textContent = `Kamera-Fehler: ${err.message}`;
         console.error('Error accessing camera:', err);
+        startButton.disabled = false;
+        startButton.textContent = 'Scan starten';
     }
 }
 
@@ -232,7 +676,7 @@ function cleanupHistory() {
 }
 
 function processFrame() {
-    if (!stream || !video.videoWidth) {
+    if (!stream || !video.videoWidth || !cvReady) {
         requestAnimationFrame(processFrame);
         return;
     }
@@ -249,38 +693,122 @@ function processFrame() {
     let tempCanvas = document.createElement('canvas');
     let tempCtx = tempCanvas.getContext('2d');
 
+    let usedWebGL = false; // v1.3.3: track whether WebGL preprocessing was actually used
     try {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         // Stabile Methode zur Bilderfassung
         tempCanvas.width = video.videoWidth;
         tempCanvas.height = video.videoHeight;
-        tempCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-        src.data.set(tempCtx.getImageData(0, 0, video.videoWidth, video.videoHeight).data);
+    tempCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+    src.data.set(tempCtx.getImageData(0, 0, video.videoWidth, video.videoHeight).data);
         
-        // Skalierungsfaktor berechnen
-        const scale = MAX_PROCESSING_WIDTH / video.videoWidth;
-        const dsize = new cv.Size(MAX_PROCESSING_WIDTH, video.videoHeight * scale);
+    // Zielgröße für CPU-Scaling
+    const scale = MAX_PROCESSING_WIDTH / video.videoWidth;
+    const dsize = new cv.Size(MAX_PROCESSING_WIDTH, Math.round(video.videoHeight * scale));
         cv.resize(src, scaled, dsize, 0, 0, cv.INTER_AREA);
 
         // v1.3: Enhanced Pipeline with Multi-Frame Processing
-        cv.cvtColor(scaled, gray, cv.COLOR_RGBA2GRAY);
+        // Optionale WebGL Vorverarbeitung (PoC): grayscale + optional blur
+        let preprocMat = null;
+        if (webglEnabled && webglSupported && typeof WebGLPoC !== 'undefined' && WebGLPoC.processWebGL) {
+            try {
+                // Render the scaled frame into an offscreen canvas
+                const scCanvas = document.createElement('canvas');
+                scCanvas.width = scaled.cols; scCanvas.height = scaled.rows;
+                const scCtx = scCanvas.getContext('2d');
+                const scImageData = new ImageData(new Uint8ClampedArray(scaled.data), scaled.cols, scaled.rows);
+                scCtx.putImageData(scImageData, 0, 0);
+
+                // Prefer direct GPU readback to avoid 2D-canvas overhead
+                let proc = null;
+                const t0 = performance.now();
+                try {
+                    proc = WebGLPoC.processWebGL(scCanvas, { readPixels: true, downscale: webglDownscale, blur: webglDoBlur, timings: true });
+                } catch (e) {
+                    // Fallback to canvas path if readPixels not supported
+                    const processedCanvas = WebGLPoC.processWebGL(scCanvas, { downscale: webglDownscale, blur: webglDoBlur });
+                    const rbCanvas = document.createElement('canvas');
+                    rbCanvas.width = processedCanvas.width;
+                    rbCanvas.height = processedCanvas.height;
+                    const rbCtx = rbCanvas.getContext('2d');
+                    try { rbCtx.drawImage(processedCanvas, 0, 0); } catch (e2) { throw new Error('drawImage failed: ' + e2.message); }
+                    const procImg = rbCtx.getImageData(0, 0, rbCanvas.width, rbCanvas.height);
+                    preprocMat = cv.matFromImageData(procImg);
+                }
+                if (proc && proc.pixels) {
+                    // gl.readPixels returns data starting from bottom-left; flip to top-left for ImageData/cv
+                    const w = proc.width, h = proc.height;
+                    const src = proc.pixels; // Uint8Array
+                    const rowBytes = w * 4;
+                    const flipped = new Uint8ClampedArray(src.length);
+                    for (let y = 0; y < h; y++) {
+                        const srcOff = (h - 1 - y) * rowBytes;
+                        const dstOff = y * rowBytes;
+                        flipped.set(src.subarray(srcOff, srcOff + rowBytes), dstOff);
+                    }
+                    const imgData = new ImageData(flipped, w, h);
+                    preprocMat = cv.matFromImageData(imgData);
+                    addDebugLog('🧪 WebGL readPixels genutzt');
+                    if (proc.timings) {
+                        const tt = proc.timings;
+                        addDebugLog(`🧪 WebGL timing: upload=${tt.upload.toFixed(1)}ms, draw=${tt.draw.toFixed(1)}ms, readback=${tt.readback.toFixed(1)}ms, total=${tt.total.toFixed(1)}ms (scale=${proc.scale?.toFixed?.(2) ?? '1.00'}, blur=${proc.blur?'on':'off'})`);
+                    }
+                }
+                // Convert to grayscale (already grayscale RGB), but ensure single channel
+                cv.cvtColor(preprocMat, gray, cv.COLOR_RGBA2GRAY);
+                addDebugLog('🧪 WebGL Preprocessing angewendet');
+                // Ensure this info also reaches the server logs at least once per session (bypass throttle)
+                if (typeof window !== 'undefined') {
+                    if (!window.__webglPreprocLoggedServer) {
+                        window.__webglPreprocLoggedServer = true;
+                        try {
+                            fetch('/log', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'INFO: WebGL Preprocessing angewendet' });
+                        } catch (e2) { /* ignore network errors */ }
+                    }
+                }
+                usedWebGL = true;
+            } catch (e) {
+                const emsg = formatErr(e);
+                addDebugLog(`🧪 <span style="color:#f80">WebGL Fehler, Fallback:</span> ${emsg}`);
+                logErrorToServer(`WEBGL_FALLBACK ${emsg}`);
+                cv.cvtColor(scaled, gray, cv.COLOR_RGBA2GRAY);
+            }
+        } else {
+            cv.cvtColor(scaled, gray, cv.COLOR_RGBA2GRAY);
+        }
         frameCounter++;
+
+        // Aktualisiere effektive Mapping-Faktoren (Detektionsbild -> Video)
+        if (gray && gray.cols > 0 && gray.rows > 0) {
+            lastDetW = gray.cols; lastDetH = gray.rows;
+            const vW = (video.videoWidth || canvas.width || 1);
+            const vH = (video.videoHeight || canvas.height || 1);
+            lastInvDetScaleX = vW / lastDetW;
+            lastInvDetScaleY = vH / lastDetH;
+        } else {
+            lastDetW = MAX_PROCESSING_WIDTH;
+            lastDetH = Math.max(1, Math.round(video.videoHeight * scale));
+            const vW = (video.videoWidth || canvas.width || 1);
+            const vH = (video.videoHeight || canvas.height || 1);
+            lastInvDetScaleX = vW / lastDetW;
+            lastInvDetScaleY = vH / lastDetH;
+        }
 
         // v1.3: Multi-Frame Processing
         addToFrameHistory(gray);
 
         // Stage 1: Frame Averaging (wenn genügend Frames vorhanden)
-        let processFrame = gray;
+        let procFrame = gray;
         let avgFrame = calculateFrameAverage();
         if (avgFrame && frameHistory.length >= 3) {
-            processFrame = avgFrame;
+            procFrame = avgFrame;
         }
 
         // Stage 2: Bilateral Filter für Rauschreduzierung
         let filtered = new cv.Mat();
         try {
-            cv.bilateralFilter(processFrame, filtered, 9, 75, 75);
+            cv.bilateralFilter(procFrame, filtered, 9, 75, 75);
 
             // Stage 3: Adaptive Canny Thresholds
             const medianVal = calculateSimpleMedian(filtered);
@@ -308,8 +836,10 @@ function processFrame() {
             kernel.delete();
             if (avgFrame) avgFrame.delete();
         } catch (error) {
-            console.error('v1.3 Pipeline Error:', error.message);
-            addDebugLog(`❌ <span style="color: #f00">Pipeline Error:</span> ${error.message}`);
+            const emsg = formatErr(error);
+            console.error('v1.3 Pipeline Error:', emsg);
+            addDebugLog(`❌ <span style="color: #f00">Pipeline Error:</span> ${emsg}`);
+            logErrorToServer(`PIPELINE_ERROR ${emsg}`);
             // Fallback zur v1.1 Pipeline bei Fehlern
             cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
             cv.Canny(gray, thresh, 50, 100);
@@ -319,14 +849,15 @@ function processFrame() {
         } finally {
             if (filtered && !filtered.isDeleted()) filtered.delete();
             if (avgFrame && !avgFrame.isDeleted()) avgFrame.delete();
+            if (preprocMat && !preprocMat.isDeleted()) preprocMat.delete();
         }
 
         // v1.3: Confidence-basierte Dokumenterkennung
-        let foundContour = findDocumentContour(contours, scale);
+    let foundContour = findDocumentContour(contours, lastDetW, lastDetH);
         let confidence = 0.0;
 
         if (foundContour) {
-            confidence = calculateContourConfidence(foundContour, {width: MAX_PROCESSING_WIDTH, height: video.videoHeight * scale});
+            confidence = calculateContourConfidence(foundContour, {width: lastDetW, height: lastDetH});
             addToContourHistory(foundContour, confidence);
 
             // Temporal Stabilization - verwende historisch beste Kontur
@@ -385,16 +916,23 @@ function processFrame() {
             }
 
             biggestContour = foundContour;
-            drawContour(biggestContour, 1 / scale); 
+            // Canvas vor dem Zeichnen leeren, dann Kontur pixelgenau zeichnen
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawContour(biggestContour, lastInvDetScaleX, lastInvDetScaleY); 
             
             if (documentStableCount >= STABLE_FRAMES_REQUIRED) {
-                statusMessage.textContent = 'Stabil erkannt. Scan wird ausgelöst...';
-                if (!autoScanTimer) {
-                    addDebugLog(`📸 <span style="color: #0f0">AUTO-SCAN</span> wird in ${AUTO_SCAN_DELAY}ms ausgelöst`);
-                    autoScanTimer = setTimeout(() => {
-                        safeCapture();
-                        autoScanTimer = null;
-                    }, AUTO_SCAN_DELAY);
+                if (testMode) {
+                    statusMessage.textContent = 'Stabil erkannt. Test Mode aktiv – kein Auto-Scan.';
+                    if (autoScanTimer) { clearTimeout(autoScanTimer); autoScanTimer = null; }
+                } else {
+                    statusMessage.textContent = 'Stabil erkannt. Scan wird ausgelöst...';
+                    if (!autoScanTimer) {
+                        addDebugLog(`📸 <span style="color: #0f0">AUTO-SCAN</span> wird in ${AUTO_SCAN_DELAY}ms ausgelöst`);
+                        autoScanTimer = setTimeout(() => {
+                            safeCapture();
+                            autoScanTimer = null;
+                        }, AUTO_SCAN_DELAY);
+                    }
                 }
             } else {
                 statusMessage.textContent = `Dokument erkannt! (${documentStableCount}/${STABLE_FRAMES_REQUIRED})`;
@@ -427,6 +965,15 @@ function processFrame() {
     performanceStats.frameCount++;
     performanceStats.avgFrameTime = (performanceStats.avgFrameTime * (performanceStats.frameCount - 1) + frameTime) / performanceStats.frameCount;
 
+    // v1.3.3: Accumulate per-window perf by pipeline
+    if (usedWebGL) {
+        perfWindow.webglFrames++;
+        perfWindow.sumMsWebGL += frameTime;
+    } else {
+        perfWindow.cpuFrames++;
+        perfWindow.sumMsCPU += frameTime;
+    }
+
     // Performance-Kategorisierung für Benchmarks
     if (frameTime < 50) {
         validationStats.performanceBenchmarks.fastFrames++;
@@ -454,6 +1001,11 @@ function processFrame() {
 
         logValidationSummary();
 
+        // Heartbeat nur jedes zweite 60er-Intervall (~120 Frames), gedrosselt
+        if ((performanceStats.frameCount / 60) % 2 === 0) {
+            logInfoThrottled(`HEARTBEAT v1.3.3 frames=${performanceStats.frameCount} avgMs=${performanceStats.avgFrameTime.toFixed(1)} fps=${fps.toFixed(1)}`);
+        }
+
         // Automatische System-Gesundheitsprüfung alle 5 Minuten (300 Frames bei ~60 FPS)
         if (performanceStats.frameCount % 300 === 0) {
             const healthCheck = validateSystemHealth();
@@ -474,10 +1026,12 @@ function processFrame() {
     requestAnimationFrame(processFrame);
 }
 
-function findDocumentContour(contours, scale) {
+function findDocumentContour(contours, detWidth, detHeight) {
     let maxArea = 0;
     let biggest = null;
-    const minArea = (MAX_PROCESSING_WIDTH * MAX_PROCESSING_WIDTH) * 0.05; // Mindestfläche 5% des Bildes
+    const baseW = Math.max(1, detWidth || MAX_PROCESSING_WIDTH);
+    const baseH = Math.max(1, detHeight || Math.round((MAX_PROCESSING_WIDTH * 9) / 16));
+    const minArea = (baseW * baseH) * 0.05; // Mindestfläche 5% des Detektionsbildes
 
     for (let i = 0; i < contours.size(); ++i) {
         let cnt = contours.get(i);
@@ -500,11 +1054,13 @@ function findDocumentContour(contours, scale) {
     return biggest;
 }
 
-function drawContour(contour, scale) {
+function drawContour(contour, scaleX, scaleY) {
+    // Wichtig: Canvas-Backstore bleibt auf Video-Pixelmaß (video.videoWidth/Height)
+    // CSS-Größe wird separat über alignOverlayToVideo gesetzt.
     ctx.beginPath();
-    ctx.moveTo(contour.data32S[0] * scale, contour.data32S[1] * scale);
+    ctx.moveTo(contour.data32S[0] * scaleX, contour.data32S[1] * scaleY);
     for (let i = 1; i < contour.rows; i++) {
-        ctx.lineTo(contour.data32S[i * 2] * scale, contour.data32S[i * 2 + 1] * scale);
+        ctx.lineTo(contour.data32S[i * 2] * scaleX, contour.data32S[i * 2 + 1] * scaleY);
     }
     ctx.closePath();
     ctx.lineWidth = 3;
@@ -651,10 +1207,12 @@ function getTemporallyStabilizedContour() {
     return null;
 }
 
+// Throttled server logging (min 5s between posts)
+let __lastServerLogTs = 0;
 async function logErrorToServer(error) {
     // v1.3.1: Erweiterte Server-Logging mit POST-Request
     const logMessage = typeof error === 'string' ? error : (error.message || error);
-    console.error('v1.3.2 Log:', logMessage);
+    console.error('v1.3.3 Log:', logMessage);
 
     if (error.stack) {
         console.error('Stack:', error.stack);
@@ -662,6 +1220,11 @@ async function logErrorToServer(error) {
 
     // POST-Request an Server für persistente Speicherung
     try {
+        const now = Date.now();
+        if (now - __lastServerLogTs < 5000) {
+            return; // Throttle
+        }
+        __lastServerLogTs = now;
         const response = await fetch('/log', {
             method: 'POST',
             headers: {
@@ -677,6 +1240,14 @@ async function logErrorToServer(error) {
         console.warn('Fehler beim Senden an Log-Server:', fetchError.message);
         // Fallback: Lokales Logging wenn Server nicht erreichbar
     }
+}
+
+// Info/Heartbeat-Logger (ebenfalls gedrosselt)
+async function logInfoThrottled(message) {
+    const now = Date.now();
+    if (now - __lastServerLogTs < 5000) return;
+    __lastServerLogTs = now;
+    try { await fetch('/log', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: `INFO: ${message}` }); } catch {}
 }
 
 // v1.3.1: Validierungs-Zusammenfassung für automatische Analyse
@@ -709,10 +1280,16 @@ function logValidationSummary() {
     addDebugLog(`🔥 High-Confidence: ${validationStats.highConfidenceScans} | Avg-Confidence: ${validationStats.avgConfidenceScore.toFixed(2)}`);
 
     // Server-Log für Analyse
+    // v1.3.3: Compute per-window averages for WebGL vs CPU
+    const webglAvg = perfWindow.webglFrames > 0 ? (perfWindow.sumMsWebGL / perfWindow.webglFrames) : null;
+    const cpuAvg = perfWindow.cpuFrames > 0 ? (perfWindow.sumMsCPU / perfWindow.cpuFrames) : null;
+
     const summaryData = {
         sessionDuration: sessionDuration,
         performance: performanceGrade,
         avgFrameTime: validationStats.performanceBenchmarks.avgProcessingTime,
+        webgl: { supported: webglSupported, enabled: webglEnabled, frames: perfWindow.webglFrames, avgMs: webglAvg },
+        cpu: { frames: perfWindow.cpuFrames, avgMs: cpuAvg },
         stabilityRatio: stabilityRatio,
         successRate: successRate,
         totalDetections: validationStats.documentDetections,
@@ -723,6 +1300,12 @@ function logValidationSummary() {
 
     console.log('VALIDATION_SUMMARY:', JSON.stringify(summaryData));
     logErrorToServer(`VALIDATION_SUMMARY: ${JSON.stringify(summaryData)}`);
+
+    // v1.3.3: reset perf window after logging to get next window metrics
+    perfWindow.webglFrames = 0;
+    perfWindow.cpuFrames = 0;
+    perfWindow.sumMsWebGL = 0;
+    perfWindow.sumMsCPU = 0;
 }
 
 // v1.3.1: Automatische Validierung basierend auf Metriken
@@ -915,8 +1498,8 @@ function captureAndWarp() {
         console.log('Frame-Daten in cv.Mat gesetzt');
 
         // Eckpunkte und Skalierungsfaktor
-        const scale = MAX_PROCESSING_WIDTH / frame.cols;
-        const corners = getOrderedCorners(biggestContour, 1 / scale);
+    // Ecken aus Detektionsraum (lastDetW/lastDetH) in Videoraum umrechnen
+    const corners = getOrderedCorners(biggestContour, lastInvDetScaleX, lastInvDetScaleY);
         const [tl, tr, br, bl] = corners;
 
         const widthA = Math.sqrt(((br.x - bl.x) ** 2) + ((br.y - bl.y) ** 2));
@@ -1031,10 +1614,10 @@ function captureAndWarp() {
     }
 }
 
-function getOrderedCorners(contour, scale = 1) {
+function getOrderedCorners(contour, scaleX = 1, scaleY = 1) {
     const points = [];
     for (let i = 0; i < contour.rows; i++) {
-        points.push({ x: contour.data32S[i * 2] * scale, y: contour.data32S[i * 2 + 1] * scale });
+        points.push({ x: contour.data32S[i * 2] * scaleX, y: contour.data32S[i * 2 + 1] * scaleY });
     }
     points.sort((a, b) => a.y - b.y);
     const top = points.slice(0, 2).sort((a, b) => a.x - b.x);
@@ -1065,6 +1648,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         document.getElementById('ios-save-tip').style.display = 'none';
     }
+    // late try to init WebGL if webgl.js loaded after opencv callback
+    initWebGLIfAvailable();
+    // Overlay bei Größenänderungen neu ausrichten
+    window.addEventListener('resize', alignOverlayToVideo);
+    window.addEventListener('orientationchange', alignOverlayToVideo);
 });
 
 function isIOS() {

@@ -1,29 +1,23 @@
-# Version 1.3.3 - WebGL PoC (Basis 1.3.1)
+# 1.3.3
 
-Datum: 2025-09-14
+## Änderungen in v1.3.3 (2025-09-14)
 
-Änderungen:
-
-- Optionaler WebGL-Vorverarbeitungs-Pfad (Grayscale + 3×3 Blur) mit UI-Toggle
-- Sichere Fallbacks auf CPU-Pipeline; Kernerkennung unverändert (Stabilität)
-- Neues Perf-Test-Tool (Zeitfenster) inkl. Snapshots und VALIDATION_SUMMARY
-- Upload kompletter Client-Logs pro Test via `/save-client-log` in `test-logs/`
-- Präzise Overlay-Ausrichtung und Mapping-Fixes (kein Rand links/rechts)
+✅ Optionaler WebGL-Vorverarbeitungs-Pfad (Grayscale + 3x3 Blur)
+✅ UI-Toggle „WebGL (PoC)“ im Scanner-View, sichere Fallbacks
+✅ Keine Änderungen am Erkennungskern; nur Preprocessing als Experiment
 
 ---
 
-# Version 1.3.2 - Conservative & Clean (Basis 1.3.1)
+## Version 1.3.2 - Conservative & Clean (Basis 1.3.1)
 
-Datum: 2025-09-14
+### Änderungen in v1.3.2 (2025-09-14)
 
-Änderungen:
-
-- Basis-Pipeline aus v1.3.1 beibehalten (stabile Erkennung)
-- CONFIDENCE_THRESHOLD auf 0.62 gesenkt (robuster bei schwieriger Beleuchtung)
-- Gedrosseltes Server-Logging (INFO/HEARTBEAT)
-- No-Cache HTTP-Header im Server
-- Logrotation ab 5MB
-- Moderner SSLContext (TLS ≥ 1.2) statt ssl.wrap_socket
+✅ Basis-Pipeline unverändert von v1.3.1 übernommen (stabile Erkennung)
+✅ `CONFIDENCE_THRESHOLD` auf `0.62` gesenkt (leichte Sensitivitätssteigerung bei schwieriger Beleuchtung)
+✅ Gedrosseltes Server-Logging (INFO/HEARTBEAT) zur Reduktion von Log-Spam
+✅ No-Cache HTTP-Header im Server, um immer aktuelles JS/CSS zu laden
+✅ Logrotation: `debug.log` wird ab 5MB rotiert (`debug_YYYYMMDD_HHMMSS.log`)
+✅ Moderner SSLContext statt `ssl.wrap_socket` (Deprecation-Warnung entfernt)
 
 ---
 
@@ -46,9 +40,8 @@ Datum: 2025-09-14
 
 ## Technische Verbesserungen
 
- 
 ### 1. Multi-Frame Processing
-
+ 
 ```javascript
 // Frame History für Averaging
 addToFrameHistory(gray);
@@ -57,13 +50,13 @@ if (avgFrame && frameHistory.length >= 3) {
     processFrame = avgFrame; // Verwende gemittelte Frames
 }
 ```
+ 
 - Reduziert Kamerarauschen durch Frame-Mittelung
 - Stabilere Edge Detection bei bewegter Kamera
 - Performance-optimiert mit begrenzter History-Größe
 
- 
 ### 2. Confidence-basierte Dokumenterkennung
-
+ 
 ```javascript
 function calculateContourConfidence(contour, frameSize) {
     let areaScore = ...; // Relative Größe bewerten
@@ -72,14 +65,14 @@ function calculateContourConfidence(contour, frameSize) {
     return weightedAverage(areaScore, rectangularityScore, aspectScore);
 }
 ```
+ 
 - **Area Score**: Optimale Dokumentgröße (30% der Bildfläche)
 - **Rectangularity Score**: Bevorzugt 4-eckige Konturen
 - **Aspect Score**: Realistische Dokumentproportionen
 - **Threshold**: Nur Confidence ≥ 0.7 wird akzeptiert
 
- 
 ### 3. Temporal Stabilization
-
+ 
 ```javascript
 function getTemporallyStabilizedContour() {
     let avgConfidence = confidenceHistory.average();
@@ -88,25 +81,26 @@ function getTemporallyStabilizedContour() {
     }
 }
 ```
+ 
 - History der besten Konturen über mehrere Frames
 - Durchschnittliche Confidence-Bewertung
 - Wählt stabilste Dokumenterkennung
 
- 
 ### 4. Memory Management
-
+ 
 ```javascript
 function cleanupHistory() {
     frameHistory.forEach(frame => frame.delete());
     contourHistory.forEach(entry => entry.contour.delete());
 }
 ```
+ 
 - Automatische Bereinigung beim Scanner-Stopp
 - Verhindert Memory Leaks bei längerer Nutzung
 - Sichere Mat-Objekt Verwaltung
 
- 
 ## Erwartete Verbesserungen vs v1.2
+ 
 - 🎯 **Stabilere Erkennung** bei Kamerabewegung durch Frame-Averaging
 - 🎯 **Weniger False-Positives** durch Confidence-Schwellenwerte  
 - 🎯 **Konsistentere Scans** durch temporale Stabilisierung
