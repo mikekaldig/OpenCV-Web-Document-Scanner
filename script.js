@@ -36,6 +36,8 @@ function updatePageCounter() {
     if (createPdfButton) {
         createPdfButton.style.display = scannedPages.length > 0 ? 'inline-block' : 'none';
     }
+    // Thumbnails synchron halten
+    try { if (typeof renderThumbnails === 'function') renderThumbnails(); } catch(_) {}
 }
 
 async function createPdfFromPages() {
