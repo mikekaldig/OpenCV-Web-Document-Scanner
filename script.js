@@ -138,6 +138,125 @@ function loadJsPdfScript() {
     return __jspdfLoadPromise;
 }
 
+// Automated debugging test function
+async function runAutomaticDebuggingTest() {
+    try {
+        addDebugLog('🔬 AUTO-DEBUG: Starte automatischen Enhancement-Test');
+        logErrorToServer('AUTO_DEBUG_START: Beginning automatic enhancement test');
+        
+        // 1) Create synthetic test image (white rectangle on gray background, slightly rotated)
+        const testW = 400, testH = 300;
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = testW; testCanvas.height = testH;
+        const testCtx = testCanvas.getContext('2d');
+        
+        // Gray background
+        testCtx.fillStyle = '#888888';
+        testCtx.fillRect(0, 0, testW, testH);
+        
+        // White rotated rectangle (simulate document)
+        testCtx.save();
+        testCtx.translate(testW/2, testH/2);
+        testCtx.rotate(5 * Math.PI / 180); // 5 degree rotation
+        testCtx.fillStyle = '#ffffff';
+        testCtx.fillRect(-150, -100, 300, 200);
+        
+        // Add some black lines to simulate text
+        testCtx.fillStyle = '#000000';
+        for (let i = 0; i < 8; i++) {
+            testCtx.fillRect(-140 + i * 35, -80 + i * 20, 100, 3);
+        }
+        testCtx.restore();
+        
+        const testDataUrl = testCanvas.toDataURL('image/png');
+        addDebugLog(`🔬 AUTO-DEBUG: Testbild erstellt ${testW}x${testH}`);
+        logErrorToServer(`AUTO_DEBUG_IMAGE: Created test image ${testW}x${testH}`);
+        
+        // 2) Convert to Mat and test enhancement
+        const testMat = await dataUrlToMat(testDataUrl);
+        if (!testMat) {
+            addDebugLog('🔬 AUTO-DEBUG: FEHLER - Testbild konnte nicht zu Mat konvertiert werden');
+            logErrorToServer('AUTO_DEBUG_FAIL: Could not convert test image to Mat');
+            return;
+        }
+        
+        addDebugLog(`🔬 AUTO-DEBUG: Test Mat ${testMat.cols}x${testMat.rows}, channels=${testMat.channels()}`);
+        logErrorToServer(`AUTO_DEBUG_MAT: ${testMat.cols}x${testMat.rows}, channels=${testMat.channels()}`);
+        
+        // Convert RGBA to BGRA for processing
+        try { cv.cvtColor(testMat, testMat, cv.COLOR_RGBA2BGRA); } catch (_) {}
+        
+        // 3) Test current settings
+        const testSettings = {
+            deskew: rectifySettings.enableDeskew,
+            refine: rectifySettings.enableRefine,
+            aspect: rectifySettings.targetAspect
+        };
+        addDebugLog(`🔬 AUTO-DEBUG: Settings - Deskew=${testSettings.deskew}, Refine=${testSettings.refine}, Aspect=${testSettings.aspect}`);
+        logErrorToServer(`AUTO_DEBUG_SETTINGS: ${JSON.stringify(testSettings)}`);
+        
+        // 4) Run enhancement
+        const enhanced = enhanceDocumentImage(testMat);
+        testMat.delete();
+        
+        if (!enhanced) {
+            addDebugLog('🔬 AUTO-DEBUG: FEHLER - Enhancement gab null zurück');
+            logErrorToServer('AUTO_DEBUG_FAIL: Enhancement returned null');
+            return;
+        }
+        
+        addDebugLog(`🔬 AUTO-DEBUG: Enhancement OK - ${enhanced.cols}x${enhanced.rows}, channels=${enhanced.channels()}`);
+        logErrorToServer(`AUTO_DEBUG_SUCCESS: Enhanced ${enhanced.cols}x${enhanced.rows}, channels=${enhanced.channels()}`);
+        
+        enhanced.delete();
+        
+        // 5) Test all combinations
+        const combinations = [
+            { deskew: true, refine: true, aspect: 'auto' },
+            { deskew: true, refine: false, aspect: 'a4' },
+            { deskew: false, refine: true, aspect: 'letter' },
+            { deskew: false, refine: false, aspect: 'auto' }
+        ];
+        
+        for (let i = 0; i < combinations.length; i++) {
+            const combo = combinations[i];
+            addDebugLog(`🔬 AUTO-DEBUG: Test ${i+1}/4 - Deskew=${combo.deskew}, Refine=${combo.refine}, Aspect=${combo.aspect}`);
+            logErrorToServer(`AUTO_DEBUG_COMBO_${i+1}: ${JSON.stringify(combo)}`);
+            
+            // Temporarily override settings for test
+            if (deskewToggle) deskewToggle.checked = combo.deskew;
+            if (refineToggle) refineToggle.checked = combo.refine;
+            if (aspectSelect) aspectSelect.value = combo.aspect;
+            
+            // Test enhancement with this combination
+            const testMat2 = await dataUrlToMat(testDataUrl);
+            if (testMat2) {
+                try { cv.cvtColor(testMat2, testMat2, cv.COLOR_RGBA2BGRA); } catch (_) {}
+                const enhanced2 = enhanceDocumentImage(testMat2);
+                testMat2.delete();
+                if (enhanced2) {
+                    addDebugLog(`🔬 AUTO-DEBUG: Combo ${i+1} OK`);
+                    logErrorToServer(`AUTO_DEBUG_COMBO_${i+1}_SUCCESS: ${enhanced2.cols}x${enhanced2.rows}`);
+                    enhanced2.delete();
+                } else {
+                    addDebugLog(`🔬 AUTO-DEBUG: Combo ${i+1} FEHLER`);
+                    logErrorToServer(`AUTO_DEBUG_COMBO_${i+1}_FAIL: Enhancement returned null`);
+                }
+            }
+            
+            await new Promise(r => setTimeout(r, 100)); // Small delay between tests
+        }
+        
+        addDebugLog('🔬 AUTO-DEBUG: Automatischer Test abgeschlossen');
+        logErrorToServer('AUTO_DEBUG_COMPLETE: Automatic test finished');
+        
+    } catch (e) {
+        const errMsg = e && e.message ? e.message : String(e);
+        addDebugLog(`🔬 AUTO-DEBUG: FEHLER - ${errMsg}`);
+        logErrorToServer(`AUTO_DEBUG_ERROR: ${errMsg}`);
+    }
+}
+
 async function ensureJsPdfLoaded(timeoutMs = 4000) {
     if (window.jspdf && window.jspdf.jsPDF) return true;
     await loadJsPdfScript();
@@ -354,22 +473,52 @@ async function dataUrlToMat(dataUrl) {
 
 async function reprocessCurrentPreview() {
     try {
-        if (!lastWarpedDataUrl) { return; }
-        if (resultView && resultView.classList.contains('hidden')) { return; }
+        if (!lastWarpedDataUrl) { 
+            addDebugLog('⚠️ Reprocess: Keine lastWarpedDataUrl verfügbar');
+            logErrorToServer('REPROCESS_FAIL: No lastWarpedDataUrl');
+            return; 
+        }
+        if (resultView && resultView.classList.contains('hidden')) { 
+            addDebugLog('⚠️ Reprocess: ResultView ist versteckt');
+            logErrorToServer('REPROCESS_FAIL: ResultView hidden');
+            return; 
+        }
         addDebugLog('🔁 Reprocess mit aktuellen Einstellungen...');
+        logErrorToServer('REPROCESS_START: Beginning reprocess');
+        
         // 1) Lade Mat aus gespeichertem Warped-Image
         let src = await dataUrlToMat(lastWarpedDataUrl);
-        if (!src) { addDebugLog('⚠️ Reprocess: Quelle nicht verfügbar'); return; }
+        if (!src) { 
+            addDebugLog('⚠️ Reprocess: Quelle nicht verfügbar'); 
+            logErrorToServer('REPROCESS_FAIL: Could not load source mat');
+            return; 
+        }
+        
+        addDebugLog(`📐 Reprocess: Source Mat ${src.cols}x${src.rows}, channels=${src.channels()}`);
+        logErrorToServer(`REPROCESS_SRC: ${src.cols}x${src.rows}, channels=${src.channels()}`);
+        
         // Die Canvas-Daten sind RGBA; für unsere Konvertierungen nutzen wir BGRA
         try { cv.cvtColor(src, src, cv.COLOR_RGBA2BGRA); } catch (_) {}
+        
         // 2) Enhance anwenden
         let enhanced = enhanceDocumentImage(src);
         src.delete();
+        
+        if (!enhanced) {
+            addDebugLog('⚠️ Reprocess: enhanceDocumentImage returned null');
+            logErrorToServer('REPROCESS_FAIL: enhanceDocumentImage returned null');
+            return;
+        }
+        
+        addDebugLog(`📐 Reprocess: Enhanced Mat ${enhanced.cols}x${enhanced.rows}, channels=${enhanced.channels()}`);
+        logErrorToServer(`REPROCESS_ENHANCED: ${enhanced.cols}x${enhanced.rows}, channels=${enhanced.channels()}`);
+        
         // 3) Zu RGBA für Canvas
         let rgba = new cv.Mat();
         if (enhanced.channels() === 1) cv.cvtColor(enhanced, rgba, cv.COLOR_GRAY2RGBA);
         else if (enhanced.channels() === 3) cv.cvtColor(enhanced, rgba, cv.COLOR_BGR2RGBA);
         else cv.cvtColor(enhanced, rgba, cv.COLOR_BGRA2RGBA);
+        
         // 4) In DataURL umwandeln und Vorschau aktualisieren
         const c = document.createElement('canvas');
         c.width = rgba.cols; c.height = rgba.rows;
@@ -378,11 +527,19 @@ async function reprocessCurrentPreview() {
         cctx.putImageData(id, 0, 0);
         const newUrl = c.toDataURL('image/png');
         rgba.delete(); enhanced.delete();
+        
+        const oldUrl = resultImage.src;
         resultImage.src = newUrl;
         downloadLink.href = newUrl;
-        addDebugLog('✅ Reprocess fertig');
+        
+        const changed = oldUrl !== newUrl;
+        addDebugLog(`✅ Reprocess fertig - Bild ${changed ? 'GEÄNDERT' : 'UNVERÄNDERT'}`);
+        logErrorToServer(`REPROCESS_COMPLETE: Image ${changed ? 'CHANGED' : 'UNCHANGED'}, newSize=${newUrl.length}`);
+        
     } catch (e) {
-        addDebugLog('⚠️ Reprocess-Fehler: ' + (e && e.message ? e.message : e));
+        const errMsg = e && e.message ? e.message : String(e);
+        addDebugLog('⚠️ Reprocess-Fehler: ' + errMsg);
+        logErrorToServer('REPROCESS_ERROR: ' + errMsg);
     }
 }
 
@@ -2091,8 +2248,11 @@ function enhanceDocumentImage(img) {
         }
     } catch (e) {
         addDebugLog(`⚠️ enhanceDocumentImage Deskew-Fehler: ${formatErr(e)}`);
+        logErrorToServer(`ENHANCE_ERROR: ${formatErr(e)}`);
     }
 
+    addDebugLog(`🏁 enhanceDocumentImage Ende: ${work.cols}x${work.rows}, channels=${work.channels()}`);
+    logErrorToServer(`ENHANCE_COMPLETE: ${work.cols}x${work.rows}, channels=${work.channels()}`);
     return work;
 }
 
@@ -2537,6 +2697,8 @@ document.addEventListener('DOMContentLoaded', () => {
             testEnhancementBtn.addEventListener('click', () => {
                 addDebugLog('🧪 TEST ENHANCEMENT gestartet');
                 reprocessCurrentPreview();
+                // Zusätzlich: Automated debugging test
+                setTimeout(() => runAutomaticDebuggingTest(), 1000);
             });
         }
     } catch (_) {}
