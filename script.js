@@ -283,6 +283,7 @@ const webglBlurChk = null;
 let webglDownscale = 1.0;
 let webglDoBlur = true;
 
+
 // v1.3.3: Test Mode (deaktiviert Auto-Scan)
 const testModeToggle = document.getElementById('testmode-toggle');
 const testModeToggleState = document.getElementById('testmode-toggle-state');
@@ -1801,6 +1802,7 @@ function captureAndWarp() {
 
         // Bild verbessern
         processed = enhanceDocumentImage(dst);
+        // Dewarp Beta entfernt – es bleibt bei planar-perspektivischer Korrektur
 
         // Konvertiere cv.Mat zu RGBA für Canvas
         let rgbaImage = new cv.Mat();
