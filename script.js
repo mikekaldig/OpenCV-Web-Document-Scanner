@@ -1928,12 +1928,178 @@ function enhanceDocumentImage(img) {
         channels: img.channels(),
         type: img.type()
     });
-    
-    // Erstmal das Originalbild zurückgeben ohne Verbesserung
-    // um zu testen ob das Problem bei der Verbesserung liegt
-    let result = img.clone();
-    console.log('enhanceDocumentImage: Gebe Originalbild zurück');
-    return result;
+
+    // Feature-Flags (vorerst intern, später optional in UI exponieren)
+    const ENABLE_DESKEW = true;           // Hough-basiertes Entzerren (kleine Schieflage)
+    const MAX_DESKEW_DEG = 12;            // Max. Korrektur in Grad
+    const CROP_BLACK_BORDERS = true;      // Nach Rotation schwarze Ränder automatisch abschneiden
+
+    // Arbeitskopie
+    let work = img.clone();
+
+    try {
+        if (ENABLE_DESKEW) {
+            // 1) In Graustufen umwandeln für Linienerkennung
+            let gray = new cv.Mat();
+            if (work.channels() === 3) {
+                cv.cvtColor(work, gray, cv.COLOR_BGR2GRAY);
+            } else if (work.channels() === 4) {
+                cv.cvtColor(work, gray, cv.COLOR_BGRA2GRAY);
+            } else {
+                work.copyTo(gray);
+            }
+
+            // 2) Schieflage (Skew) über Hough-Linien schätzen
+            const angle = estimateSkewAngleHough(gray);
+            addDebugLog(`🧭 Skew-Winkel geschätzt: ${angle.toFixed(2)}°`);
+
+            // 3) Korrigieren (nur kleine Winkel, um Artefakte zu vermeiden)
+            if (Math.abs(angle) > 0.4 && Math.abs(angle) <= MAX_DESKEW_DEG) {
+                const rotated = rotateImageKeepBounds(work, -angle);
+                work.delete();
+                work = rotated;
+                addDebugLog(`📐 Bild um ${(-angle).toFixed(2)}° gedreht (Deskew)`);
+
+                if (CROP_BLACK_BORDERS) {
+                    const cropped = autoCropNonBlack(work);
+                    if (cropped) {
+                        work.delete();
+                        work = cropped;
+                        addDebugLog('✂️ Schwarze Ränder automatisch beschnitten');
+                    }
+                }
+            }
+
+            gray.delete();
+        }
+    } catch (e) {
+        addDebugLog(`⚠️ enhanceDocumentImage Deskew-Fehler: ${formatErr(e)}`);
+    }
+
+    return work;
+}
+
+// Schätzt den dominanten Schief-Winkel in Grad via HoughLinesP (gewichteter Mittelwert)
+function estimateSkewAngleHough(gray) {
+    let edges = new cv.Mat();
+    let lines = new cv.Mat();
+    let angleDeg = 0;
+    try {
+        // Rauschen senken, Kanten finden
+        cv.GaussianBlur(gray, gray, new cv.Size(3, 3), 0);
+        // Auto-Canny (ähnlich wie oben):
+        const med = calculateSimpleMedian(gray);
+        const sigma = 0.33;
+        const lower = Math.max(0, (1.0 - sigma) * med);
+        const upper = Math.min(255, (1.0 + sigma) * med);
+        cv.Canny(gray, edges, lower, upper);
+
+        // Probabilistic Hough für robuste Segmente
+        cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 60, 30, 10);
+        if (lines.rows === 0) {
+            return 0; // Keine Linien -> keine Korrektur
+        }
+
+        // Winkel sammeln, auf [-45°,45°] falten, nach Länge gewichten
+        let sum = 0;
+        let wsum = 0;
+        for (let i = 0; i < lines.rows; i++) {
+            const x1 = lines.intPtr(i, 0)[0];
+            const y1 = lines.intPtr(i, 0)[1];
+            const x2 = lines.intPtr(i, 0)[2];
+            const y2 = lines.intPtr(i, 0)[3];
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const len = Math.hypot(dx, dy);
+            if (len < 20) continue; // sehr kurze Linien ignorieren
+            let ang = Math.atan2(dy, dx) * 180 / Math.PI; // [-180, 180]
+            // Falte auf [-90,90)
+            if (ang >= 90) ang -= 180;
+            if (ang < -90) ang += 180;
+            // Falte weiter auf [-45,45] für Deskew (nahe Horizontal)
+            if (ang > 45) ang -= 90;
+            if (ang < -45) ang += 90;
+            // Ignore extreme near-vertical (wir wollen horizont ausrichten)
+            if (Math.abs(ang) > 45) continue;
+            sum += ang * len;
+            wsum += len;
+        }
+        angleDeg = wsum > 0 ? (sum / wsum) : 0;
+        return angleDeg;
+    } catch (e) {
+        return 0;
+    } finally {
+        edges.delete();
+        lines.delete();
+    }
+}
+
+// Rotiert Bild um Winkel (Grad) und vergrößert Canvas, so dass nichts abgeschnitten wird
+function rotateImageKeepBounds(src, angleDeg) {
+    const center = new cv.Point(src.cols / 2, src.rows / 2);
+    const M = cv.getRotationMatrix2D(center, angleDeg, 1.0);
+
+    // Bounding Box berechnen: OpenCV-Standardtrick – Ecken transformieren
+    const cos = Math.abs(M.doubleAt(0, 0));
+    const sin = Math.abs(M.doubleAt(0, 1));
+    const newW = Math.round(src.rows * sin + src.cols * cos);
+    const newH = Math.round(src.rows * cos + src.cols * sin);
+
+    // Übersetzen, damit das rotierte Bild vollständig im Ziel liegt
+    M.doublePtr(0, 2)[0] += (newW / 2) - center.x;
+    M.doublePtr(1, 2)[0] += (newH / 2) - center.y;
+
+    const dsize = new cv.Size(newW, newH);
+    const dst = new cv.Mat();
+    cv.warpAffine(src, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0, 0, 0, 255));
+    M.delete();
+    return dst;
+}
+
+// Schneidet schwarze Ränder nach Rotation ab (alles >0 als Inhalt gewertet)
+function autoCropNonBlack(src) {
+    try {
+        let gray = new cv.Mat();
+        if (src.channels() === 3) {
+            cv.cvtColor(src, gray, cv.COLOR_BGR2GRAY);
+        } else if (src.channels() === 4) {
+            cv.cvtColor(src, gray, cv.COLOR_BGRA2GRAY);
+        } else {
+            src.copyTo(gray);
+        }
+        let bin = new cv.Mat();
+        // Alles >0 wird weiß (Inhalt), null bleibt schwarz (Ränder)
+        cv.threshold(gray, bin, 0, 255, cv.THRESH_BINARY);
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(bin, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        if (contours.size() === 0) {
+            gray.delete(); bin.delete(); contours.delete(); hierarchy.delete();
+            return null;
+        }
+        // Größte Kontur bestimmen
+        let maxArea = 0; let maxIdx = 0;
+        for (let i = 0; i < contours.size(); i++) {
+            let area = cv.contourArea(contours.get(i));
+            if (area > maxArea) { maxArea = area; maxIdx = i; }
+        }
+        const rect = cv.boundingRect(contours.get(maxIdx));
+        // Sicherheitsmarge reduzieren/expandieren je nach Bedarf
+        const x = Math.max(0, rect.x);
+        const y = Math.max(0, rect.y);
+        const w = Math.min(src.cols - x, rect.width);
+        const h = Math.min(src.rows - y, rect.height);
+        if (w <= 0 || h <= 0) {
+            gray.delete(); bin.delete(); contours.delete(); hierarchy.delete();
+            return null;
+        }
+        const roi = new cv.Rect(x, y, w, h);
+        const cropped = src.roi(roi).clone();
+        gray.delete(); bin.delete(); contours.delete(); hierarchy.delete();
+        return cropped;
+    } catch (e) {
+        return null;
+    }
 }
 
 // UI Helfer
