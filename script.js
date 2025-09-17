@@ -1933,12 +1933,14 @@ function enhanceDocumentImage(img) {
     const ENABLE_DESKEW = true;           // Hough-basiertes Entzerren (kleine Schieflage)
     const MAX_DESKEW_DEG = 12;            // Max. Korrektur in Grad
     const CROP_BLACK_BORDERS = true;      // Nach Rotation schwarze Ränder automatisch abschneiden
+    const ENABLE_REFINE_WARP = true;      // Zweite Warp-Phase: Orthogonalisierung per Hough in der bereits entzerrten Ansicht
+    const TARGET_ASPECT = 'auto';         // 'a4' | 'letter' | 'auto'
 
     // Arbeitskopie
     let work = img.clone();
 
     try {
-        if (ENABLE_DESKEW) {
+    if (ENABLE_DESKEW) {
             // 1) In Graustufen umwandeln für Linienerkennung
             let gray = new cv.Mat();
             if (work.channels() === 3) {
@@ -1971,6 +1973,14 @@ function enhanceDocumentImage(img) {
             }
 
             gray.delete();
+        }
+        if (ENABLE_REFINE_WARP) {
+            const refined = refineWarpByHough(work, { targetAspect: TARGET_ASPECT });
+            if (refined) {
+                work.delete();
+                work = refined;
+                addDebugLog('🧰 Perspektive verfeinert (H/V-Linien, Orthogonalisierung)');
+            }
         }
     } catch (e) {
         addDebugLog(`⚠️ enhanceDocumentImage Deskew-Fehler: ${formatErr(e)}`);
@@ -2098,6 +2108,180 @@ function autoCropNonBlack(src) {
         gray.delete(); bin.delete(); contours.delete(); hierarchy.delete();
         return cropped;
     } catch (e) {
+        return null;
+    }
+}
+
+// Zweite Warp-Phase: in der bereits grob entzerrten Ansicht horizontale/vertikale Linien finden,
+// extreme Linien (oben/unten/links/rechts) bestimmen, Schnittpunkte berechnen und erneut warpen.
+function refineWarpByHough(src, { targetAspect = 'auto' } = {}) {
+    try {
+        // 1) Kanten & Linien finden
+        let gray = new cv.Mat();
+        if (src.channels() === 3) cv.cvtColor(src, gray, cv.COLOR_BGR2GRAY);
+        else if (src.channels() === 4) cv.cvtColor(src, gray, cv.COLOR_BGRA2GRAY);
+        else src.copyTo(gray);
+
+        cv.GaussianBlur(gray, gray, new cv.Size(3, 3), 0);
+        const med = calculateSimpleMedian(gray);
+        const sigma = 0.33;
+        const lower = Math.max(0, (1.0 - sigma) * med);
+        const upper = Math.min(255, (1.0 + sigma) * med);
+        let edges = new cv.Mat();
+        cv.Canny(gray, edges, lower, upper);
+
+        let lines = new cv.Mat();
+        cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 80, 40, 12);
+
+        if (lines.rows === 0) {
+            gray.delete(); edges.delete(); lines.delete();
+            return null;
+        }
+
+        const w = src.cols, h = src.rows;
+        const cx = w / 2, cy = h / 2;
+        const horiz = []; const vert = [];
+        for (let i = 0; i < lines.rows; i++) {
+            const x1 = lines.intPtr(i, 0)[0];
+            const y1 = lines.intPtr(i, 0)[1];
+            const x2 = lines.intPtr(i, 0)[2];
+            const y2 = lines.intPtr(i, 0)[3];
+            const dx = x2 - x1, dy = y2 - y1;
+            const len = Math.hypot(dx, dy);
+            if (len < 25) continue;
+            let ang = Math.atan2(dy, dx) * 180 / Math.PI; // [-180, 180]
+            if (ang < 0) ang += 180; // [0,180)
+            // Klassifikation: horizontal nahe 0°, vertikal nahe 90°
+            if (ang <= 15 || ang >= 165) {
+                horiz.push({ x1, y1, x2, y2, len });
+            } else if (Math.abs(ang - 90) <= 15) {
+                vert.push({ x1, y1, x2, y2, len });
+            }
+        }
+
+        if (horiz.length < 1 || vert.length < 1) {
+            gray.delete(); edges.delete(); lines.delete();
+            return null;
+        }
+
+        // 2) Linien auf Normalform (a,b,c) normalisieren
+        const toLine = ({ x1, y1, x2, y2, len }) => {
+            let a = y1 - y2;
+            let b = x2 - x1;
+            let c = x1 * y2 - x2 * y1;
+            const norm = Math.hypot(a, b) || 1;
+            a /= norm; b /= norm; c /= norm;
+            return { a, b, c, len };
+        };
+        const H = horiz.map(toLine);
+        const V = vert.map(toLine);
+
+        // 3) Extreme Linien bestimmen: oben = min y@cx, unten = max y@cx; links = min x@cy, rechts = max x@cy
+        const yAt = (L, x) => {
+            // ax + by + c = 0 -> y = (-a*x - c)/b
+            if (Math.abs(L.b) < 1e-6) return Infinity;
+            return (-L.a * x - L.c) / L.b;
+        };
+        const xAt = (L, y) => {
+            // ax + by + c = 0 -> x = (-b*y - c)/a
+            if (Math.abs(L.a) < 1e-6) return Infinity;
+            return (-L.b * y - L.c) / L.a;
+        };
+
+        let top = null, bottom = null;
+        for (const L of H) {
+            const y = yAt(L, cx);
+            if (!isFinite(y)) continue;
+            if (top === null || y < top.y) top = { L, y };
+            if (bottom === null || y > bottom.y) bottom = { L, y };
+        }
+        let left = null, right = null;
+        for (const L of V) {
+            const x = xAt(L, cy);
+            if (!isFinite(x)) continue;
+            if (left === null || x < left.x) left = { L, x };
+            if (right === null || x > right.x) right = { L, x };
+        }
+
+        if (!top || !bottom || !left || !right) {
+            gray.delete(); edges.delete(); lines.delete();
+            return null;
+        }
+
+        // 4) Schnittpunkte berechnen
+        const intersect = (L1, L2) => {
+            const { a: a1, b: b1, c: c1 } = L1;
+            const { a: a2, b: b2, c: c2 } = L2;
+            const det = a1 * b2 - a2 * b1;
+            if (Math.abs(det) < 1e-6) return null;
+            const x = (b1 * c2 - b2 * c1) / det;
+            const y = (c1 * a2 - c2 * a1) / det;
+            return { x, y };
+        };
+        const TL = intersect(top.L, left.L);
+        const TR = intersect(top.L, right.L);
+        const BR = intersect(bottom.L, right.L);
+        const BL = intersect(bottom.L, left.L);
+
+        const pts = [TL, TR, BR, BL];
+        if (pts.some(p => !p || !isFinite(p.x) || !isFinite(p.y))) {
+            gray.delete(); edges.delete(); lines.delete();
+            return null;
+        }
+        // Sanity: Punkte leicht ins Bild einklemmen
+        for (const p of pts) {
+            p.x = Math.max(0, Math.min(w - 1, p.x));
+            p.y = Math.max(0, Math.min(h - 1, p.y));
+        }
+
+        // 5) Zielgröße bestimmen (gemessen oder an Standard anlehnen)
+        const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+        const topW = dist(TL, TR), botW = dist(BL, BR);
+        const leftH = dist(TL, BL), rightH = dist(TR, BR);
+        let estW = Math.round((topW + botW) / 2);
+        let estH = Math.round((leftH + rightH) / 2);
+        estW = Math.max(16, estW); estH = Math.max(16, estH);
+
+        const aspectAuto = estW / estH;
+        const pickAspect = (mode) => {
+            const ASPECTS = {
+                a4: 210 / 297, // ~0.707 (Portrait) -> wir arbeiten mit W/H; in „typisch“ nehmen wir größerer Seite = H
+                letter: 8.5 / 11 // ~0.773
+            };
+            if (mode === 'a4') return ASPECTS.a4;
+            if (mode === 'letter') return ASPECTS.letter;
+            // auto: Snapping, falls nahe an Standardformaten
+            const candidates = [ASPECTS.a4, ASPECTS.letter];
+            let best = aspectAuto, bestErr = 1e9;
+            for (const a of candidates) {
+                const err = Math.abs(a - aspectAuto) / a;
+                if (err < bestErr) { bestErr = err; best = a; }
+            }
+            return bestErr < 0.08 ? best : aspectAuto; // nur snappen, wenn <8% Abweichung
+        };
+        const targetAspect = pickAspect(targetAspect);
+        // final target size basierend auf Ziel-Aspect (bewahre Höhe bevorzugt)
+        let dstH = estH;
+        let dstW = Math.round(dstH * targetAspect);
+        if (dstW < 16) { dstW = estW; dstH = Math.round(dstW / targetAspect); }
+
+        // 6) Erneute Perspektiv-Transformation
+        const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            TL.x, TL.y, TR.x, TR.y, BR.x, BR.y, BL.x, BL.y
+        ]);
+        const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            0, 0, dstW, 0, dstW, dstH, 0, dstH
+        ]);
+        const M = cv.getPerspectiveTransform(srcTri, dstTri);
+        const dsize = new cv.Size(dstW, dstH);
+        const out = new cv.Mat();
+        cv.warpPerspective(src, out, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
+        srcTri.delete(); dstTri.delete(); M.delete();
+
+        gray.delete(); edges.delete(); lines.delete();
+        return out;
+    } catch (e) {
+        addDebugLog(`⚠️ refineWarpByHough Fehler: ${formatErr(e)}`);
         return null;
     }
 }
