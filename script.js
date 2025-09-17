@@ -2015,25 +2015,75 @@ function enhanceDocumentImage(img) {
 // Schätzt den dominanten Schief-Winkel in Grad via HoughLinesP (gewichteter Mittelwert)
 function estimateSkewAngleHough(gray) {
     let edges = new cv.Mat();
-    let lines = new cv.Mat();
+    let lines = null;
     let angleDeg = 0;
     try {
-        // Rauschen senken, Kanten finden
-        cv.GaussianBlur(gray, gray, new cv.Size(3, 3), 0);
-        // Auto-Canny (ähnlich wie oben):
-        const med = calculateSimpleMedian(gray);
+        // 1) Vorverarbeitung: Histogramm ausgleichen, glätten, Auto-Canny, dann Morphology (Close)
+        const g2 = new cv.Mat();
+        cv.equalizeHist(gray, g2);
+        cv.GaussianBlur(g2, g2, new cv.Size(3, 3), 0);
+        const med = calculateSimpleMedian(g2);
         const sigma = 0.33;
         const lower = Math.max(0, (1.0 - sigma) * med);
         const upper = Math.min(255, (1.0 + sigma) * med);
-        cv.Canny(gray, edges, lower, upper);
+        cv.Canny(g2, edges, lower, upper);
+        // Close to connect gaps
+        let kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+        cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
+        kernel.delete();
 
-        // Probabilistic Hough für robuste Segmente
-        cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 60, 30, 10);
+        // 2) Hough-LinesP mit Backoff versuchen
+        lines = houghLinesPWithBackoff(edges);
         if (lines.rows === 0) {
-            return 0; // Keine Linien -> keine Korrektur
+            // 3) Fallback: Standard-Hough -> Winkel aus Thetas
+            const linesStd = new cv.Mat();
+            cv.HoughLines(edges, linesStd, 1, Math.PI / 180, 120);
+            if (linesStd.rows > 0) {
+                let sum = 0, wsum = 0;
+                for (let i = 0; i < linesStd.rows; i++) {
+                    const theta = linesStd.doubleAt(i, 0, 1);
+                    // Horizontal in kartesischer Sicht: theta ≈ 0 oder pi
+                    let ang = (theta * 180 / Math.PI);
+                    if (ang >= 180) ang -= 180;
+                    if (ang > 90) ang -= 180; // -> [-90,90]
+                    if (ang > 45) ang -= 90;
+                    if (ang < -45) ang += 90;
+                    const w = 1; // kein Längenmaß verfügbar -> gleich gewichten
+                    sum += ang * w; wsum += w;
+                }
+                angleDeg = wsum > 0 ? (sum / wsum) : 0;
+                linesStd.delete(); g2.delete();
+                return angleDeg;
+            }
+            linesStd.delete();
         }
 
-        // Winkel sammeln, auf [-45°,45°] falten, nach Länge gewichten
+        if (lines.rows === 0) {
+            // 4) Fallback: minAreaRect der größten Kontur -> Orientierung
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            let maxArea = 0, maxIdx = -1;
+            for (let i = 0; i < contours.size(); i++) {
+                const area = cv.contourArea(contours.get(i));
+                if (area > maxArea) { maxArea = area; maxIdx = i; }
+            }
+            if (maxIdx >= 0) {
+                const rect = cv.minAreaRect(contours.get(maxIdx));
+                // rect.angle in (-90,0]; interpret as tilt from horizontal
+                let ang = rect.angle; // negative means rotated clockwise
+                // Normalize into [-45,45]
+                if (ang < -45) ang += 90;
+                angleDeg = ang;
+                contours.delete(); hierarchy.delete(); g2.delete();
+                return angleDeg;
+            }
+            contours.delete(); hierarchy.delete();
+            g2.delete();
+            return 0;
+        }
+
+        // 5) Winkel aus P-Linien gewichtet nach Segmentlänge
         let sum = 0;
         let wsum = 0;
         for (let i = 0; i < lines.rows; i++) {
@@ -2044,27 +2094,47 @@ function estimateSkewAngleHough(gray) {
             const dx = x2 - x1;
             const dy = y2 - y1;
             const len = Math.hypot(dx, dy);
-            if (len < 20) continue; // sehr kurze Linien ignorieren
-            let ang = Math.atan2(dy, dx) * 180 / Math.PI; // [-180, 180]
-            // Falte auf [-90,90)
+            if (len < 20) continue;
+            let ang = Math.atan2(dy, dx) * 180 / Math.PI;
             if (ang >= 90) ang -= 180;
             if (ang < -90) ang += 180;
-            // Falte weiter auf [-45,45] für Deskew (nahe Horizontal)
             if (ang > 45) ang -= 90;
             if (ang < -45) ang += 90;
-            // Ignore extreme near-vertical (wir wollen horizont ausrichten)
             if (Math.abs(ang) > 45) continue;
             sum += ang * len;
             wsum += len;
         }
         angleDeg = wsum > 0 ? (sum / wsum) : 0;
+        g2.delete();
         return angleDeg;
     } catch (e) {
         return 0;
     } finally {
-        edges.delete();
+        try { edges.delete(); } catch(_) {}
+        try { if (lines) lines.delete(); } catch(_) {}
+    }
+}
+
+// Robust HoughLinesP with parameter backoff
+function houghLinesPWithBackoff(edges) {
+    const attempts = [
+        { thr: 90, len: 60, gap: 16 },
+        { thr: 80, len: 40, gap: 12 },
+        { thr: 60, len: 30, gap: 12 },
+        { thr: 45, len: 25, gap: 10 },
+        { thr: 35, len: 20, gap: 8 }
+    ];
+    for (const a of attempts) {
+        const lines = new cv.Mat();
+        cv.HoughLinesP(edges, lines, 1, Math.PI / 180, a.thr, a.len, a.gap);
+        if (lines.rows > 0) {
+            addDebugLog(`📏 HoughLinesP hit: thr=${a.thr}, len=${a.len}, gap=${a.gap}, lines=${lines.rows}`);
+            return lines; // caller must delete
+        }
         lines.delete();
     }
+    addDebugLog('📏 HoughLinesP: no lines even after backoff');
+    return new cv.Mat();
 }
 
 // Rotiert Bild um Winkel (Grad) und vergrößert Canvas, so dass nichts abgeschnitten wird
@@ -2139,12 +2209,13 @@ function autoCropNonBlack(src) {
 // extreme Linien (oben/unten/links/rechts) bestimmen, Schnittpunkte berechnen und erneut warpen.
 function refineWarpByHough(src, { targetAspect = 'auto' } = {}) {
     try {
-        // 1) Kanten & Linien finden
+        // 1) Kanten & Linien finden (robuste Vorverarbeitung)
         let gray = new cv.Mat();
         if (src.channels() === 3) cv.cvtColor(src, gray, cv.COLOR_BGR2GRAY);
         else if (src.channels() === 4) cv.cvtColor(src, gray, cv.COLOR_BGRA2GRAY);
         else src.copyTo(gray);
-
+        // Contrast & edges
+        cv.equalizeHist(gray, gray);
         cv.GaussianBlur(gray, gray, new cv.Size(3, 3), 0);
         const med = calculateSimpleMedian(gray);
         const sigma = 0.33;
@@ -2152,9 +2223,12 @@ function refineWarpByHough(src, { targetAspect = 'auto' } = {}) {
         const upper = Math.min(255, (1.0 + sigma) * med);
         let edges = new cv.Mat();
         cv.Canny(gray, edges, lower, upper);
+        let kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+        cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
+        kernel.delete();
 
-        let lines = new cv.Mat();
-        cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 80, 40, 12);
+        // Hough with backoff
+        let lines = houghLinesPWithBackoff(edges);
 
         if (lines.rows === 0) {
             gray.delete(); edges.delete(); lines.delete();
