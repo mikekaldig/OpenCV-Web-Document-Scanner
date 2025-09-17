@@ -138,6 +138,77 @@ function loadJsPdfScript() {
     return __jspdfLoadPromise;
 }
 
+async function forceReprocessFromCurrentImage() {
+    try {
+        if (!resultImage || !resultImage.src || !resultImage.src.startsWith('data:image')) {
+            addDebugLog('🔥 FORCE: Kein gültiges Bild verfügbar');
+            logErrorToServer('FORCE_FAIL: No valid image available');
+            return;
+        }
+        
+        addDebugLog('🔥 FORCE: Starte Force Reprocess');
+        logErrorToServer('FORCE_REPROCESS_START: Beginning force reprocess');
+        
+        // 1) Aktuelles Bild als Mat laden
+        let src = await dataUrlToMat(resultImage.src);
+        if (!src) {
+            addDebugLog('🔥 FORCE: Konvertierung zu Mat fehlgeschlagen');
+            logErrorToServer('FORCE_FAIL: Could not convert to Mat');
+            return;
+        }
+        
+        addDebugLog(`🔥 FORCE: Source Mat ${src.cols}x${src.rows}, channels=${src.channels()}`);
+        logErrorToServer(`FORCE_SRC: ${src.cols}x${src.rows}, channels=${src.channels()}`);
+        
+        // 2) Zu BGRA konvertieren (wie im normalen Reprocess)
+        try { cv.cvtColor(src, src, cv.COLOR_RGBA2BGRA); } catch (_) {}
+        
+        // 3) Enhancement direkt aufrufen
+        addDebugLog('🔥 FORCE: Rufe enhanceDocumentImage auf');
+        logErrorToServer('FORCE_ENHANCE_CALL: Calling enhanceDocumentImage');
+        
+        let enhanced = enhanceDocumentImage(src);
+        src.delete();
+        
+        if (!enhanced) {
+            addDebugLog('🔥 FORCE: Enhancement gab null zurück');
+            logErrorToServer('FORCE_FAIL: Enhancement returned null');
+            return;
+        }
+        
+        addDebugLog(`🔥 FORCE: Enhanced Mat ${enhanced.cols}x${enhanced.rows}, channels=${enhanced.channels()}`);
+        logErrorToServer(`FORCE_ENHANCED: ${enhanced.cols}x${enhanced.rows}, channels=${enhanced.channels()}`);
+        
+        // 4) Zurück zu RGBA und Vorschau aktualisieren
+        let rgba = new cv.Mat();
+        if (enhanced.channels() === 1) cv.cvtColor(enhanced, rgba, cv.COLOR_GRAY2RGBA);
+        else if (enhanced.channels() === 3) cv.cvtColor(enhanced, rgba, cv.COLOR_BGR2RGBA);
+        else cv.cvtColor(enhanced, rgba, cv.COLOR_BGRA2RGBA);
+        
+        const c = document.createElement('canvas');
+        c.width = rgba.cols; c.height = rgba.rows;
+        const cctx = c.getContext('2d');
+        const id = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
+        cctx.putImageData(id, 0, 0);
+        const newUrl = c.toDataURL('image/png');
+        
+        rgba.delete(); enhanced.delete();
+        
+        const oldUrl = resultImage.src;
+        resultImage.src = newUrl;
+        downloadLink.href = newUrl;
+        
+        const changed = oldUrl !== newUrl;
+        addDebugLog(`🔥 FORCE: Fertig - Bild ${changed ? 'GEÄNDERT' : 'UNVERÄNDERT'}`);
+        logErrorToServer(`FORCE_COMPLETE: Image ${changed ? 'CHANGED' : 'UNCHANGED'}, newSize=${newUrl.length}`);
+        
+    } catch (e) {
+        const errMsg = e && e.message ? e.message : String(e);
+        addDebugLog('🔥 FORCE: Fehler - ' + errMsg);
+        logErrorToServer('FORCE_ERROR: ' + errMsg);
+    }
+}
+
 // Automated debugging test function
 async function runAutomaticDebuggingTest() {
     try {
@@ -409,6 +480,7 @@ const refineToggle = document.getElementById('refine-toggle');
 const refineToggleState = document.getElementById('refine-toggle-state');
 const aspectSelect = document.getElementById('aspect-select');
 const testEnhancementBtn = document.getElementById('test-enhancement-btn');
+const forceEnhanceBtn = document.getElementById('force-enhance-btn');
 
 const rectifySettings = {
     get enableDeskew() {
@@ -2107,7 +2179,7 @@ function captureAndWarp() {
         console.log('Perspektivkorrektur abgeschlossen, Bildverbesserung wird angewendet');
         
         const finalImageData = outputCanvas.toDataURL('image/png');
-        // Speichere auch die vor-Enhancement-Version (nur perspektivisch gewarpt)
+        // Zusätzlich eine Kopie des vor-Enhancement (dst) speichern, um Reprocess zu ermöglichen
         try {
             let preCanvas = document.createElement('canvas');
             let preRGBA = new cv.Mat();
@@ -2122,7 +2194,12 @@ function captureAndWarp() {
             preCtx.putImageData(preId, 0, 0);
             lastWarpedDataUrl = preCanvas.toDataURL('image/png');
             preRGBA.delete();
-        } catch (_) { /* best-effort */ }
+            console.log('lastWarpedDataUrl gespeichert:', lastWarpedDataUrl ? `${lastWarpedDataUrl.length} bytes` : 'null');
+            logErrorToServer(`WARPED_SAVED: ${lastWarpedDataUrl ? lastWarpedDataUrl.length + ' bytes' : 'null'}`);
+        } catch (e) { 
+            console.log('Fehler beim Speichern lastWarpedDataUrl:', e);
+            logErrorToServer(`WARPED_SAVE_ERROR: ${e.message || e}`);
+        }
         
         // Cleanup
         rgbaImage.delete();
@@ -2699,6 +2776,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 reprocessCurrentPreview();
                 // Zusätzlich: Automated debugging test
                 setTimeout(() => runAutomaticDebuggingTest(), 1000);
+            });
+        }
+        if (forceEnhanceBtn) {
+            forceEnhanceBtn.addEventListener('click', () => {
+                addDebugLog('🔥 FORCE ENHANCE gestartet');
+                logErrorToServer('FORCE_ENHANCE_START: Force enhancement test');
+                
+                // Test mit aktuellem resultImage
+                if (resultImage && resultImage.src && resultImage.src.startsWith('data:image')) {
+                    addDebugLog('🔥 FORCE: Verwende aktuelles resultImage');
+                    logErrorToServer('FORCE_ENHANCE_SRC: Using current resultImage');
+                    
+                    // Direkt das aktuelle Bild reprocessen
+                    forceReprocessFromCurrentImage();
+                } else {
+                    addDebugLog('🔥 FORCE: Kein gültiges resultImage, verwende synthetisches Testbild');
+                    logErrorToServer('FORCE_ENHANCE_SRC: No valid resultImage, using synthetic test');
+                    runAutomaticDebuggingTest();
+                }
             });
         }
     } catch (_) {}
