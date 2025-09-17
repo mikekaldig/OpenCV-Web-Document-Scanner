@@ -289,16 +289,23 @@ const deskewToggleState = document.getElementById('deskew-toggle-state');
 const refineToggle = document.getElementById('refine-toggle');
 const refineToggleState = document.getElementById('refine-toggle-state');
 const aspectSelect = document.getElementById('aspect-select');
+const testEnhancementBtn = document.getElementById('test-enhancement-btn');
 
 const rectifySettings = {
     get enableDeskew() {
-        return deskewToggle ? !!deskewToggle.checked : true;
+        const val = deskewToggle ? !!deskewToggle.checked : true;
+        console.log('rectifySettings.enableDeskew =', val);
+        return val;
     },
     get enableRefine() {
-        return refineToggle ? !!refineToggle.checked : true;
+        const val = refineToggle ? !!refineToggle.checked : true;
+        console.log('rectifySettings.enableRefine =', val);
+        return val;
     },
     get targetAspect() {
-        return aspectSelect ? (aspectSelect.value || 'auto') : 'auto';
+        const val = aspectSelect ? (aspectSelect.value || 'auto') : 'auto';
+        console.log('rectifySettings.targetAspect =', val);
+        return val;
     },
     get enableSubpixelCorners() {
         // Expose later via UI if desired
@@ -2034,6 +2041,8 @@ function enhanceDocumentImage(img) {
     const ENABLE_REFINE_WARP = rectifySettings.enableRefine; // Orthogonalisierung per Hough
     const TARGET_ASPECT = rectifySettings.targetAspect;      // 'a4' | 'letter' | 'auto'
 
+    addDebugLog(`🔧 enhanceDocumentImage: Deskew=${ENABLE_DESKEW}, Refine=${ENABLE_REFINE_WARP}, Aspect=${TARGET_ASPECT}`);
+
     // Arbeitskopie
     let work = img.clone();
 
@@ -2521,6 +2530,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (aspectSelect) {
             aspectSelect.addEventListener('change', () => {
                 addDebugLog(`🔧 Aspect Ziel geändert: ${aspectSelect.value}`);
+                reprocessCurrentPreview();
+            });
+        }
+        if (testEnhancementBtn) {
+            testEnhancementBtn.addEventListener('click', () => {
+                addDebugLog('🧪 TEST ENHANCEMENT gestartet');
                 reprocessCurrentPreview();
             });
         }
