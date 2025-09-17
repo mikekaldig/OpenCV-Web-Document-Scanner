@@ -45,7 +45,7 @@ async function createPdfFromPages() {
     }
     // Falls jsPDF noch nicht geladen ist, versuchen wir es dynamisch nachzuladen
     if (!window.jspdf || !window.jspdf.jsPDF) {
-        addDebugLog('⚠️ jsPDF nicht vorhanden – versuche Nachladen...');
+        addDebugLog('⚠️ jsPDF nicht vorhanden – versuche Nachladen (local-first)...');
         await ensureJsPdfLoaded();
     }
     if (!window.jspdf || !window.jspdf.jsPDF) {
@@ -110,12 +110,26 @@ function loadJsPdfScript() {
                 return;
             }
             const s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            // Local-first: versuchen, aus assets/js zu laden
+            s.src = 'assets/js/jspdf.umd.min.js';
             s.crossOrigin = 'anonymous';
             s.referrerPolicy = 'no-referrer';
             s.setAttribute('data-dynamic-jspdf', '1');
-            s.onload = () => { addDebugLog('✅ jsPDF dynamisch geladen'); resolve(true); };
-            s.onerror = () => { addDebugLog('❌ jsPDF Nachladen fehlgeschlagen'); resolve(false); };
+            s.onload = () => { addDebugLog('✅ jsPDF (lokal) geladen'); resolve(true); };
+            s.onerror = async () => {
+                addDebugLog('❌ jsPDF lokal nicht gefunden – versuche CDN');
+                // Retry via CDN
+                try {
+                    const cdn = document.createElement('script');
+                    cdn.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                    cdn.crossOrigin = 'anonymous';
+                    cdn.referrerPolicy = 'no-referrer';
+                    cdn.setAttribute('data-dynamic-jspdf', '1');
+                    cdn.onload = () => { addDebugLog('✅ jsPDF (CDN) geladen'); resolve(true); };
+                    cdn.onerror = () => { addDebugLog('❌ jsPDF Nachladen (CDN) fehlgeschlagen'); resolve(false); };
+                    document.head.appendChild(cdn);
+                } catch (_) { resolve(false); }
+            };
             document.head.appendChild(s);
         } catch (_) { resolve(false); }
     });
@@ -142,6 +156,94 @@ window.addEventListener('load', () => {
         setTimeout(() => { ensureJsPdfLoaded(); }, 300);
     }
 });
+
+// --- Thumbnails: Render, Delete, Reorder, Click-Preview ---
+const thumbsEl = document.getElementById('thumbnails');
+
+function renderThumbnails() {
+    if (!thumbsEl) return;
+    thumbsEl.innerHTML = '';
+    scannedPages.forEach((dataUrl, idx) => {
+        const item = document.createElement('div');
+        item.className = 'thumb';
+        item.draggable = true;
+        item.dataset.index = String(idx);
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        const del = document.createElement('div');
+        del.className = 'del';
+        del.title = 'Entfernen';
+        del.textContent = '×';
+        item.appendChild(img);
+        item.appendChild(del);
+        thumbsEl.appendChild(item);
+    });
+}
+
+function updateUIAfterPagesChange() {
+    updatePageCounter();
+    renderThumbnails();
+}
+
+if (thumbsEl) {
+    // Click handlers (delegiert)
+    thumbsEl.addEventListener('click', (e) => {
+        const target = e.target;
+        const thumb = target.closest('.thumb');
+        if (!thumb) return;
+        const idx = parseInt(thumb.dataset.index || '-1', 10);
+        if (isNaN(idx) || idx < 0 || idx >= scannedPages.length) return;
+        if (target.classList.contains('del')) {
+            // Delete
+            scannedPages.splice(idx, 1);
+            addDebugLog(`🗑️ Seite ${idx + 1} entfernt`);
+            // Vorschau ggf. auf neue letzte Seite setzen
+            if (scannedPages.length > 0) {
+                const last = scannedPages[Math.min(idx, scannedPages.length - 1)];
+                resultImage.src = last;
+                downloadLink.href = last;
+            }
+            updateUIAfterPagesChange();
+            return;
+        }
+        // Preview on click
+        const sel = scannedPages[idx];
+        resultImage.src = sel;
+        downloadLink.href = sel;
+        addDebugLog(`👁️ Vorschau Seite ${idx + 1}`);
+    });
+
+    // Drag & Drop Reorder
+    let dragIdx = null;
+    thumbsEl.addEventListener('dragstart', (e) => {
+        const thumb = e.target.closest('.thumb');
+        if (!thumb) return;
+        dragIdx = parseInt(thumb.dataset.index || '-1', 10);
+        thumb.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+    thumbsEl.addEventListener('dragend', (e) => {
+        const thumb = e.target.closest('.thumb');
+        if (thumb) thumb.classList.remove('dragging');
+        dragIdx = null;
+    });
+    thumbsEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    });
+    thumbsEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const targetThumb = e.target.closest('.thumb');
+        if (!targetThumb) return;
+        const dropIdx = parseInt(targetThumb.dataset.index || '-1', 10);
+        if (dragIdx === null || isNaN(dropIdx) || dropIdx < 0 || dropIdx >= scannedPages.length) return;
+        if (dragIdx === dropIdx) return;
+        const [moved] = scannedPages.splice(dragIdx, 1);
+        scannedPages.splice(dropIdx, 0, moved);
+        addDebugLog(`🔀 Seite von ${dragIdx + 1} nach ${dropIdx + 1} verschoben`);
+        renderThumbnails();
+    });
+}
 
 // Hilfsfunktion: Overlay-Canvas exakt über dem Video ausrichten
 function alignOverlayToVideo() {

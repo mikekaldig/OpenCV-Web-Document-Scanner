@@ -17,8 +17,7 @@
     <script defer src="opencv.js" onload="onOpenCvReady();"></script>
     <!-- WebGL helper (optional PoC) -->
     <script defer src="webgl.js"></script>
-    <!-- jsPDF für PDF-Erstellung -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-/FhJv1+qsSVqSdz+CA0nVddOZXS6jttuPAHyBs+K6TfGsDzpDHK5vVsQt1zAr72Xd1LSeX776BFqe7rum1lY3w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- jsPDF wird lokal bevorzugt und bei Bedarf dynamisch nachgeladen (Fallback: CDN) -->
 </head>
 <body>
     <div class="container">
@@ -48,6 +47,7 @@
                 <img id="result-image" alt="Gescanntes Dokument">
             </div>
             <div id="page-counter" style="color:#fff; text-align:center; margin:10px 0; font-size:0.9em;">Gespeicherte Seiten: 0</div>
+            <div id="thumbnails" class="thumbs" aria-label="Seiten-Miniaturen"></div>
             <div class="controls" style="flex-wrap:wrap; gap:8px; justify-content:center;">
                 <button id="rescan-button" class="control-button" style="background:#444;">Verwerfen</button>
                 <button id="add-page-button" class="control-button" style="background:#2c7;">Nächste Seite</button>
