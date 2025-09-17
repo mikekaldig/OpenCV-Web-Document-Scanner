@@ -75,6 +75,24 @@
                 WebGL (PoC)
                 <span id="webgl-toggle-state" style="margin-left: 4px; color: #fa6;">OFF</span>
             </label>
+            <label id="deskew-toggle-label" title="Horizontales Begradigen (Hough)" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="deskew-toggle" checked>
+                Deskew
+                <span id="deskew-toggle-state" style="margin-left: 4px; color: #0f0;">ON</span>
+            </label>
+            <label id="refine-toggle-label" title="Orthogonalisierung per H/V-Linien" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="refine-toggle" checked>
+                Refine
+                <span id="refine-toggle-state" style="margin-left: 4px; color: #0f0;">ON</span>
+            </label>
+            <label id="aspect-select-label" title="Ziel-Seitenverhältnis für die Ausgabe" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
+                Aspect
+                <select id="aspect-select" style="margin-left: 6px; background: #111; color: #fff; border: 1px solid #333; border-radius: 3px; padding: 2px 4px;">
+                    <option value="auto" selected>Auto</option>
+                    <option value="a4">A4</option>
+                    <option value="letter">Letter</option>
+                </select>
+            </label>
             <label id="testmode-toggle-label" title="Deaktiviert Auto-Scan für valide Performance-Tests" style="background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #333; padding: 4px 8px; font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center; gap: 6px;">
                 <input type="checkbox" id="testmode-toggle">
                 Test Mode

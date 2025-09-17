@@ -283,6 +283,29 @@ const webglBlurChk = null;
 let webglDownscale = 1.0;
 let webglDoBlur = true;
 
+// v1.3.3+: Rectify toggles (Deskew / Refine / Aspect)
+const deskewToggle = document.getElementById('deskew-toggle');
+const deskewToggleState = document.getElementById('deskew-toggle-state');
+const refineToggle = document.getElementById('refine-toggle');
+const refineToggleState = document.getElementById('refine-toggle-state');
+const aspectSelect = document.getElementById('aspect-select');
+
+const rectifySettings = {
+    get enableDeskew() {
+        return deskewToggle ? !!deskewToggle.checked : true;
+    },
+    get enableRefine() {
+        return refineToggle ? !!refineToggle.checked : true;
+    },
+    get targetAspect() {
+        return aspectSelect ? (aspectSelect.value || 'auto') : 'auto';
+    },
+    get enableSubpixelCorners() {
+        // Expose later via UI if desired
+        return true; // try subpixel by default if available
+    }
+};
+
 
 // v1.3.3: Test Mode (deaktiviert Auto-Scan)
 const testModeToggle = document.getElementById('testmode-toggle');
@@ -1929,12 +1952,12 @@ function enhanceDocumentImage(img) {
         type: img.type()
     });
 
-    // Feature-Flags (vorerst intern, später optional in UI exponieren)
-    const ENABLE_DESKEW = true;           // Hough-basiertes Entzerren (kleine Schieflage)
+    // Feature-Flags (UI-gesteuert)
+    const ENABLE_DESKEW = rectifySettings.enableDeskew; // Hough-basiertes Entzerren (kleine Schieflage)
     const MAX_DESKEW_DEG = 12;            // Max. Korrektur in Grad
     const CROP_BLACK_BORDERS = true;      // Nach Rotation schwarze Ränder automatisch abschneiden
-    const ENABLE_REFINE_WARP = true;      // Zweite Warp-Phase: Orthogonalisierung per Hough in der bereits entzerrten Ansicht
-    const TARGET_ASPECT = 'auto';         // 'a4' | 'letter' | 'auto'
+    const ENABLE_REFINE_WARP = rectifySettings.enableRefine; // Orthogonalisierung per Hough
+    const TARGET_ASPECT = rectifySettings.targetAspect;      // 'a4' | 'letter' | 'auto'
 
     // Arbeitskopie
     let work = img.clone();
@@ -2218,10 +2241,10 @@ function refineWarpByHough(src, { targetAspect = 'auto' } = {}) {
             const y = (c1 * a2 - c2 * a1) / det;
             return { x, y };
         };
-        const TL = intersect(top.L, left.L);
-        const TR = intersect(top.L, right.L);
-        const BR = intersect(bottom.L, right.L);
-        const BL = intersect(bottom.L, left.L);
+    let TL = intersect(top.L, left.L);
+    let TR = intersect(top.L, right.L);
+    let BR = intersect(bottom.L, right.L);
+    let BL = intersect(bottom.L, left.L);
 
         const pts = [TL, TR, BR, BL];
         if (pts.some(p => !p || !isFinite(p.x) || !isFinite(p.y))) {
@@ -2233,6 +2256,32 @@ function refineWarpByHough(src, { targetAspect = 'auto' } = {}) {
             p.x = Math.max(0, Math.min(w - 1, p.x));
             p.y = Math.max(0, Math.min(h - 1, p.y));
         }
+
+        // Optional: Subpixel-Korrektur der Ecken in einer kleinen ROI via cornerSubPix
+        try {
+            if (rectifySettings.enableSubpixelCorners && typeof cv.cornerSubPix === 'function') {
+                const refineCorners = (grayMat, points) => {
+                    const criteria = new cv.TermCriteria(cv.TermCriteria_EPS + cv.TermCriteria_MAX_ITER, 20, 0.01);
+                    const winSize = new cv.Size(5, 5);
+                    const zeroZone = new cv.Size(-1, -1);
+                    // Build a Mat of points (1 x N x 2)
+                    const ptsArr = [];
+                    for (const p of points) { ptsArr.push(p.x, p.y); }
+                    const corners = cv.matFromArray(points.length, 1, cv.CV_32FC2, ptsArr);
+                    cv.cornerSubPix(grayMat, corners, winSize, zeroZone, criteria);
+                    // Write back
+                    for (let i = 0; i < points.length; i++) {
+                        const x = corners.floatAt(i, 0);
+                        const y = corners.floatAt(i, 1);
+                        points[i].x = Math.max(0, Math.min(w - 1, x));
+                        points[i].y = Math.max(0, Math.min(h - 1, y));
+                    }
+                    corners.delete();
+                };
+                // Use existing gray (already computed above)
+                refineCorners(gray, [TL, TR, BR, BL]);
+            }
+        } catch (_) { /* optional refinement best-effort */ }
 
         // 5) Zielgröße bestimmen (gemessen oder an Standard anlehnen)
         const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
@@ -2299,6 +2348,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // Overlay bei Größenänderungen neu ausrichten
     window.addEventListener('resize', alignOverlayToVideo);
     window.addEventListener('orientationchange', alignOverlayToVideo);
+
+    // Initialize new toggle labels
+    try {
+        if (deskewToggle && deskewToggleState) {
+            deskewToggleState.textContent = deskewToggle.checked ? 'ON' : 'OFF';
+            deskewToggleState.style.color = deskewToggle.checked ? '#0f0' : '#fa6';
+            deskewToggle.addEventListener('change', () => {
+                deskewToggleState.textContent = deskewToggle.checked ? 'ON' : 'OFF';
+                deskewToggleState.style.color = deskewToggle.checked ? '#0f0' : '#fa6';
+            });
+        }
+        if (refineToggle && refineToggleState) {
+            refineToggleState.textContent = refineToggle.checked ? 'ON' : 'OFF';
+            refineToggleState.style.color = refineToggle.checked ? '#0f0' : '#fa6';
+            refineToggle.addEventListener('change', () => {
+                refineToggleState.textContent = refineToggle.checked ? 'ON' : 'OFF';
+                refineToggleState.style.color = refineToggle.checked ? '#0f0' : '#fa6';
+            });
+        }
+        if (aspectSelect) {
+            aspectSelect.addEventListener('change', () => {
+                addDebugLog(`🔧 Aspect Ziel geändert: ${aspectSelect.value}`);
+            });
+        }
+    } catch (_) {}
 });
 
 function isIOS() {
