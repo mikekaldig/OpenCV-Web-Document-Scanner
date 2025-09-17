@@ -320,6 +320,65 @@ let perfTestInterval = null;
 let perfTestActive = false;
 let perfTestId = null;
 
+// Letztes vor-Enhancement-Bild (nur perspektivisch gewarpt) für Re-Processing
+let lastWarpedDataUrl = null;
+
+async function dataUrlToMat(dataUrl) {
+    return new Promise((resolve) => {
+        try {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = img.width; c.height = img.height;
+                    const cctx = c.getContext('2d');
+                    cctx.drawImage(img, 0, 0);
+                    const id = cctx.getImageData(0, 0, c.width, c.height);
+                    const mat = new cv.Mat(id.height, id.width, cv.CV_8UC4);
+                    mat.data.set(id.data);
+                    resolve(mat);
+                } catch (e) { addDebugLog('⚠️ dataUrlToMat Fehler: ' + e.message); resolve(null); }
+            };
+            img.onerror = () => resolve(null);
+            img.src = dataUrl;
+        } catch (_) { resolve(null); }
+    });
+}
+
+async function reprocessCurrentPreview() {
+    try {
+        if (!lastWarpedDataUrl) { return; }
+        if (resultView && resultView.classList.contains('hidden')) { return; }
+        addDebugLog('🔁 Reprocess mit aktuellen Einstellungen...');
+        // 1) Lade Mat aus gespeichertem Warped-Image
+        let src = await dataUrlToMat(lastWarpedDataUrl);
+        if (!src) { addDebugLog('⚠️ Reprocess: Quelle nicht verfügbar'); return; }
+        // Die Canvas-Daten sind RGBA; für unsere Konvertierungen nutzen wir BGRA
+        try { cv.cvtColor(src, src, cv.COLOR_RGBA2BGRA); } catch (_) {}
+        // 2) Enhance anwenden
+        let enhanced = enhanceDocumentImage(src);
+        src.delete();
+        // 3) Zu RGBA für Canvas
+        let rgba = new cv.Mat();
+        if (enhanced.channels() === 1) cv.cvtColor(enhanced, rgba, cv.COLOR_GRAY2RGBA);
+        else if (enhanced.channels() === 3) cv.cvtColor(enhanced, rgba, cv.COLOR_BGR2RGBA);
+        else cv.cvtColor(enhanced, rgba, cv.COLOR_BGRA2RGBA);
+        // 4) In DataURL umwandeln und Vorschau aktualisieren
+        const c = document.createElement('canvas');
+        c.width = rgba.cols; c.height = rgba.rows;
+        const cctx = c.getContext('2d');
+        const id = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
+        cctx.putImageData(id, 0, 0);
+        const newUrl = c.toDataURL('image/png');
+        rgba.delete(); enhanced.delete();
+        resultImage.src = newUrl;
+        downloadLink.href = newUrl;
+        addDebugLog('✅ Reprocess fertig');
+    } catch (e) {
+        addDebugLog('⚠️ Reprocess-Fehler: ' + (e && e.message ? e.message : e));
+    }
+}
+
 function getDebugPanelText() {
     try {
         // Concatenate all debug entries as plain text lines
@@ -1884,6 +1943,22 @@ function captureAndWarp() {
         console.log('Perspektivkorrektur abgeschlossen, Bildverbesserung wird angewendet');
         
         const finalImageData = outputCanvas.toDataURL('image/png');
+        // Speichere auch die vor-Enhancement-Version (nur perspektivisch gewarpt)
+        try {
+            let preCanvas = document.createElement('canvas');
+            let preRGBA = new cv.Mat();
+            if (dst.channels() === 1) cv.cvtColor(dst, preRGBA, cv.COLOR_GRAY2RGBA);
+            else if (dst.channels() === 3) cv.cvtColor(dst, preRGBA, cv.COLOR_BGR2RGBA);
+            else if (dst.channels() === 4 && dst.type() === cv.CV_8UC4) cv.cvtColor(dst, preRGBA, cv.COLOR_BGRA2RGBA);
+            else dst.copyTo(preRGBA);
+            preCanvas.width = preRGBA.cols; preCanvas.height = preRGBA.rows;
+            const preCtx = preCanvas.getContext('2d');
+            const preId = preCtx.createImageData(preRGBA.cols, preRGBA.rows);
+            preId.data.set(new Uint8ClampedArray(preRGBA.data));
+            preCtx.putImageData(preId, 0, 0);
+            lastWarpedDataUrl = preCanvas.toDataURL('image/png');
+            preRGBA.delete();
+        } catch (_) { /* best-effort */ }
         
         // Cleanup
         rgbaImage.delete();
@@ -2431,6 +2506,7 @@ document.addEventListener('DOMContentLoaded', () => {
             deskewToggle.addEventListener('change', () => {
                 deskewToggleState.textContent = deskewToggle.checked ? 'ON' : 'OFF';
                 deskewToggleState.style.color = deskewToggle.checked ? '#0f0' : '#fa6';
+                reprocessCurrentPreview();
             });
         }
         if (refineToggle && refineToggleState) {
@@ -2439,11 +2515,13 @@ document.addEventListener('DOMContentLoaded', () => {
             refineToggle.addEventListener('change', () => {
                 refineToggleState.textContent = refineToggle.checked ? 'ON' : 'OFF';
                 refineToggleState.style.color = refineToggle.checked ? '#0f0' : '#fa6';
+                reprocessCurrentPreview();
             });
         }
         if (aspectSelect) {
             aspectSelect.addEventListener('change', () => {
                 addDebugLog(`🔧 Aspect Ziel geändert: ${aspectSelect.value}`);
+                reprocessCurrentPreview();
             });
         }
     } catch (_) {}
